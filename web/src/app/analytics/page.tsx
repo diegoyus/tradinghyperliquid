@@ -16,6 +16,8 @@ export default function AnalyticsPage() {
   const [discoveredTraders, setDiscoveredTraders] = useState<any[]>([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
   const [discoverFilter, setDiscoverFilter] = useState<"consistent" | "monthly" | "whales">("consistent");
+  const [lastAudited, setLastAudited] = useState<string>("");
+  const [visibleDiscoverCount, setVisibleDiscoverCount] = useState<number>(12);
 
   // Estados de filtros de trades
   const [selectedCoin, setSelectedCoin] = useState<string>("ALL");
@@ -36,6 +38,7 @@ export default function AnalyticsPage() {
       const json = await res.json();
       if (json.success) {
         setDiscoveredTraders(json.traders || []);
+        if (json.lastAudited) setLastAudited(json.lastAudited);
       }
     } catch (e) {
       console.error("Error al descubrir traders:", e);
@@ -206,11 +209,18 @@ export default function AnalyticsPage() {
               <Sparkles className="w-5 h-5 animate-pulse" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                Escáner Automático de Hyperliquid Mainnet
-              </h2>
-              <p className="text-xs text-gray-400">
-                Carteras auditadas automáticamente por algoritmo entre más de 43.000 traders activos.
+              <div className="flex items-center gap-2.5">
+                <h2 className="text-base font-bold text-white">
+                  Escáner Automático de Hyperliquid Mainnet
+                </h2>
+                {lastAudited && (
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                    🕒 Auditado: {lastAudited}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Historial completo analizado orden a orden (hasta 2.000 operaciones por cuenta).
               </p>
             </div>
           </div>
@@ -257,79 +267,107 @@ export default function AnalyticsPage() {
             Cargando ranking de traders con auditoría 100% on-chain...
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {discoveredTraders.map((trader, idx) => (
-              <div
-                key={idx}
-                className="p-5 rounded-2xl bg-background/90 border border-surface-border hover:border-gray-700 transition-all flex flex-col justify-between space-y-4"
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="font-bold text-xs text-white block">
-                        {trader.name || `Trader #${idx + 1}`}
-                      </span>
-                      <span className="font-mono text-[11px] text-gray-500">
-                        {trader.address.slice(0, 8)}...{trader.address.slice(-6)}
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {discoveredTraders.slice(0, visibleDiscoverCount).map((trader, idx) => (
+                <div
+                  key={idx}
+                  className="p-5 rounded-2xl bg-background/90 border border-surface-border hover:border-gray-700 transition-all flex flex-col justify-between space-y-4"
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="font-bold text-xs text-white block">
+                          {trader.name || `Trader #${idx + 1}`}
+                        </span>
+                        <span className="font-mono text-[11px] text-gray-500">
+                          {trader.address.slice(0, 8)}...{trader.address.slice(-6)}
+                        </span>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full text-xs font-extrabold bg-primary/20 text-emerald-400 border border-primary/40">
+                        ★ {trader.score}/10
                       </span>
                     </div>
-                    <span className="px-2.5 py-1 rounded-full text-xs font-extrabold bg-primary/20 text-emerald-400 border border-primary/40">
-                      ★ {trader.score}/10
-                    </span>
+
+                    <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-surface-border/60 text-xs">
+                      <div>
+                        <span className="text-[10px] text-gray-500 block">Saldo Real</span>
+                        <span className="font-mono font-bold text-gray-200">
+                          ${trader.accountValue?.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-gray-500 block">Win Rate Real</span>
+                        <span className="font-mono font-bold text-emerald-400">
+                          {trader.winRate}% ({trader.closedTradesCount || 0} trades)
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-gray-500 block">Max Drawdown</span>
+                        <span className="font-mono font-bold text-emerald-400">
+                          -{trader.maxDrawdownPct}%
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-gray-500 block">Profit Factor</span>
+                        <span className="font-mono font-bold text-blue-400">
+                          {trader.profitFactor}x
+                        </span>
+                      </div>
+                    </div>
+
+                    {trader.strategy && (
+                      <p className="text-[11px] text-gray-400 mt-2 line-clamp-1 italic">
+                        {trader.strategy}
+                      </p>
+                    )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-surface-border/60 text-xs">
-                    <div>
-                      <span className="text-[10px] text-gray-500 block">Saldo Real</span>
-                      <span className="font-mono font-bold text-gray-200">
-                        ${trader.accountValue?.toLocaleString("en-US", { maximumFractionDigits: 0 })}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-gray-500 block">Win Rate Real</span>
-                      <span className="font-mono font-bold text-emerald-400">
-                        {trader.winRate}% ({trader.closedTradesCount || 0} trades)
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-gray-500 block">Max Drawdown</span>
-                      <span className="font-mono font-bold text-emerald-400">
-                        -{trader.maxDrawdownPct}%
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-gray-500 block">Profit Factor</span>
-                      <span className="font-mono font-bold text-blue-400">
-                        {trader.profitFactor}x
-                      </span>
-                    </div>
+                  <div className="flex gap-2 pt-2 border-t border-surface-border/40">
+                    <button
+                      onClick={() => handleAnalyze(trader.address)}
+                      className="flex-1 py-2 px-3 rounded-xl bg-surface hover:bg-gray-800 border border-surface-border text-xs text-gray-200 hover:text-white font-medium flex items-center justify-center gap-1 transition-colors"
+                    >
+                      <span>Auditar a Fondo</span>
+                      <ChevronRight className="w-3.5 h-3.5 text-primary" />
+                    </button>
+                    <button
+                      onClick={() => handleAddToBasket(trader)}
+                      className="py-2 px-3 rounded-xl bg-primary hover:bg-primary-hover text-black text-xs font-bold transition-all flex items-center gap-1 shadow-md shadow-primary/20"
+                      title="Añadir a mi cesta de réplica"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Copiar
+                    </button>
                   </div>
+                </div>
+              ))}
+            </div>
 
-                  {trader.strategy && (
-                    <p className="text-[11px] text-gray-400 mt-2 line-clamp-1 italic">
-                      {trader.strategy}
-                    </p>
+            {/* Expand / View All Controls */}
+            {discoveredTraders.length > 6 && (
+              <div className="flex items-center justify-between pt-3 border-t border-surface-border/60 text-xs">
+                <span className="text-gray-400">
+                  Mostrando <strong>{Math.min(visibleDiscoverCount, discoveredTraders.length)}</strong> de <strong>{discoveredTraders.length}</strong> traders verificados
+                </span>
+                <div className="flex gap-2">
+                  {visibleDiscoverCount < discoveredTraders.length ? (
+                    <button
+                      onClick={() => setVisibleDiscoverCount(discoveredTraders.length)}
+                      className="px-3.5 py-1.5 rounded-lg bg-surface hover:bg-gray-800 border border-surface-border text-primary font-semibold transition-colors flex items-center gap-1"
+                    >
+                      Ver Todos ({discoveredTraders.length}) <ChevronRight className="w-3 h-3" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setVisibleDiscoverCount(6)}
+                      className="px-3.5 py-1.5 rounded-lg bg-surface hover:bg-gray-800 border border-surface-border text-gray-400 hover:text-white transition-colors"
+                    >
+                      Mostrar Menos (6)
+                    </button>
                   )}
                 </div>
-
-                <div className="flex gap-2 pt-2 border-t border-surface-border/40">
-                  <button
-                    onClick={() => handleAnalyze(trader.address)}
-                    className="flex-1 py-2 px-3 rounded-xl bg-surface hover:bg-gray-800 border border-surface-border text-xs text-gray-200 hover:text-white font-medium flex items-center justify-center gap-1 transition-colors"
-                  >
-                    <span>Auditar a Fondo</span>
-                    <ChevronRight className="w-3.5 h-3.5 text-primary" />
-                  </button>
-                  <button
-                    onClick={() => handleAddToBasket(trader)}
-                    className="py-2 px-3 rounded-xl bg-primary hover:bg-primary-hover text-black text-xs font-bold transition-all flex items-center gap-1 shadow-md shadow-primary/20"
-                    title="Añadir a mi cesta de réplica"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Copiar
-                  </button>
-                </div>
               </div>
-            ))}
+            )}
           </div>
         )}
       </div>

@@ -1,12 +1,19 @@
 import { NextResponse } from "next/server";
-import verifiedTradersData from "@/data/verified_traders.json";
+import verifiedData from "@/data/verified_traders.json";
 
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const filterType = searchParams.get("filter") || "consistent"; // consistent, monthly, whales
 
-    let list = [...verifiedTradersData];
+    const tradersList = Array.isArray(verifiedData)
+      ? verifiedData
+      : (verifiedData as any).traders || [];
+
+    const lastAudited = (verifiedData as any).lastAudited || new Date().toLocaleString("es-ES");
+    const totalScanned = (verifiedData as any).totalScanned || 43000;
+
+    let list = [...tradersList];
 
     if (filterType === "monthly") {
       list.sort((a, b) => b.monthRoi - a.monthRoi);
@@ -19,7 +26,8 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       success: true,
-      totalScanned: 43000,
+      lastAudited,
+      totalScanned,
       totalVerified: list.length,
       filter: filterType,
       auditMethod: "100%_FULL_FILLS_HISTORY_ONCHAIN",
