@@ -60,6 +60,12 @@
       "namedRegex": "^/api/cron/sync(?:/)?$"
     },
     {
+      "page": "/api/discover-traders",
+      "regex": "^/api/discover\\-traders(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/discover\\-traders(?:/)?$"
+    },
+    {
       "page": "/api/telegram/test",
       "regex": "^/api/telegram/test(?:/)?$",
       "routeKeys": {},

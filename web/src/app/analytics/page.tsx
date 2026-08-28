@@ -1,15 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { Search, Award, TrendingUp, Filter, ArrowUpRight, ArrowDownRight, Plus, CheckCircle2, RefreshCw, X } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { Search, Award, TrendingUp, Filter, ArrowUpRight, ArrowDownRight, Plus, CheckCircle2, RefreshCw, X, Compass, Sparkles, ChevronRight } from "lucide-react";
 import { getStoredProfile, updateTradersConfig } from "@/lib/storage";
-
-const QUICK_TRADERS = [
-  { name: "El Francotirador", addr: "0x337afda118de433f5a8c8ad6d6ef48b76d027a06" },
-  { name: "Sticky (Scalping)", addr: "0x613ead0ea5af374af0ccfc117ef116a8e8d133fe" },
-  { name: "Macro / Acciones", addr: "0xb6db1b4dc6244f86e482d834739d949d799e4da5" },
-  { name: "Especialista SOL", addr: "0xab7fb756330e3983e676f44c03dabda9120aa273" },
-];
 
 export default function AnalyticsPage() {
   const [address, setAddress] = useState("0x337afda118de433f5a8c8ad6d6ef48b76d027a06");
@@ -18,11 +11,37 @@ export default function AnalyticsPage() {
   const [error, setError] = useState<string | null>(null);
   const [addedSuccess, setAddedSuccess] = useState(false);
 
-  // Estados de filtros
+  // Estados del Explorador Automático del Leaderboard
+  const [discoveredTraders, setDiscoveredTraders] = useState<any[]>([]);
+  const [discoverLoading, setDiscoverLoading] = useState(false);
+  const [discoverFilter, setDiscoverFilter] = useState<"consistent" | "monthly" | "whales">("consistent");
+
+  // Estados de filtros de trades
   const [selectedCoin, setSelectedCoin] = useState<string>("ALL");
   const [selectedResult, setSelectedResult] = useState<"ALL" | "WINS" | "LOSSES">("ALL");
   const [selectedSide, setSelectedSide] = useState<"ALL" | "LONG" | "SHORT">("ALL");
   const [searchTerm, setSearchTerm] = useState<string>("");
+
+  // Cargar automáticamente las mejores carteras encontradas en Hyperliquid
+  const fetchDiscovered = async (filter: "consistent" | "monthly" | "whales" = "consistent") => {
+    setDiscoverLoading(true);
+    setDiscoverFilter(filter);
+    try {
+      const res = await fetch(`/api/discover-traders?filter=${filter}`);
+      const json = await res.json();
+      if (json.success) {
+        setDiscoveredTraders(json.traders || []);
+      }
+    } catch (e) {
+      console.error("Error al descubrir traders:", e);
+    } finally {
+      setDiscoverLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDiscovered("consistent");
+  }, []);
 
   const handleAnalyze = async (targetAddr?: string) => {
     const queryAddr = targetAddr || address;
@@ -31,6 +50,7 @@ export default function AnalyticsPage() {
       return;
     }
 
+    setAddress(queryAddr);
     setLoading(true);
     setError(null);
     setData(null);
@@ -58,22 +78,26 @@ export default function AnalyticsPage() {
     }
   };
 
-  const handleAddToBasket = () => {
-    if (!data) return;
+  const handleAddToBasket = (targetTrader?: any) => {
+    const target = targetTrader || data;
+    if (!target) return;
+    const targetAddress = target.address;
     const profile = getStoredProfile();
-    const exists = profile.traders.some((t) => t.address.toLowerCase() === data.address.toLowerCase());
+    const exists = profile.traders.some((t) => t.address.toLowerCase() === targetAddress.toLowerCase());
     if (exists) {
       alert("Este trader ya está en tu cesta.");
       return;
     }
 
     const newTrader = {
-      name: `Trader ${data.address.slice(0, 6)}`,
-      score: `${data.score}/10`,
-      address: data.address.toLowerCase(),
+      name: `Trader ${targetAddress.slice(0, 6)}`,
+      score: `${target.score || "9.0"}/10`,
+      address: targetAddress.toLowerCase(),
       allocation_pct: 25.0,
       risk_multiplier: 1.0,
       max_leverage: 10,
+      stop_loss_pct: 5.0,
+      max_trade_sizing_pct: 25.0,
     };
 
     updateTradersConfig([...profile.traders, newTrader]);
@@ -133,14 +157,142 @@ export default function AnalyticsPage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Header */}
       <div className="border-b border-surface-border pb-6">
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-white">Analizador de Carteras y Traders</h1>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-white">Explorador & Analizador de Carteras</h1>
         <p className="text-sm text-gray-400 mt-1">
-          Inspecciona en tiempo real el rendimiento de cualquier billetera con filtros avanzados por activos, lado y resultados.
+          Escáner automático del Leaderboard de Hyperliquid (43.000+ traders). Encuentra las billeteras más rentables sin tener que buscarlas tú mismo.
         </p>
       </div>
 
-      {/* Search Input Box */}
+      {/* SECTION: Automatic Leaderboard Discovery & Scanner */}
+      <div className="p-6 rounded-2xl bg-surface border border-surface-border space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-primary/10 text-primary">
+              <Sparkles className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                Escáner Automático de Hyperliquid Mainnet
+              </h2>
+              <p className="text-xs text-gray-400">
+                Carteras auditadas automáticamente por algoritmo entre más de 43.000 traders activos.
+              </p>
+            </div>
+          </div>
+
+          {/* Discovery Filter Tabs */}
+          <div className="flex gap-1.5 p-1 bg-background rounded-xl border border-surface-border self-start sm:self-auto">
+            <button
+              onClick={() => fetchDiscovered("consistent")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                discoverFilter === "consistent"
+                  ? "bg-primary text-black shadow"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              🔥 Top Consistentes
+            </button>
+            <button
+              onClick={() => fetchDiscovered("monthly")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                discoverFilter === "monthly"
+                  ? "bg-primary text-black shadow"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              🚀 Rentabilidad Mensual
+            </button>
+            <button
+              onClick={() => fetchDiscovered("whales")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                discoverFilter === "whales"
+                  ? "bg-primary text-black shadow"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              🐳 Grandes Ballenas (&gt; $50k)
+            </button>
+          </div>
+        </div>
+
+        {/* Discovered Cards Grid */}
+        {discoverLoading ? (
+          <div className="py-12 text-center text-gray-400 text-xs flex items-center justify-center gap-2">
+            <RefreshCw className="w-4 h-4 animate-spin text-primary" />
+            Escaneando el leaderboard de Hyperliquid en tiempo real...
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {discoveredTraders.map((trader, idx) => (
+              <div
+                key={idx}
+                className="p-4 rounded-xl bg-background/80 border border-surface-border hover:border-gray-700 transition-all flex flex-col justify-between space-y-3"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-xs font-bold text-white">
+                      {trader.address.slice(0, 8)}...{trader.address.slice(-6)}
+                    </span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-primary/20 text-emerald-400 border border-primary/30">
+                      ★ {trader.score}/10
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 mt-3 pt-2 border-t border-surface-border/60 text-xs">
+                    <div>
+                      <span className="text-[10px] text-gray-500 block">Saldo en Cuenta</span>
+                      <span className="font-mono font-bold text-gray-200">
+                        ${trader.accountValue.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-gray-500 block">ROI Mensual</span>
+                      <span className="font-mono font-bold text-emerald-400">
+                        +{trader.monthRoi.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-gray-500 block">Beneficio 30d</span>
+                      <span className="font-mono font-bold text-emerald-400">
+                        +${trader.monthPnl.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-gray-500 block">ROI Total</span>
+                      <span className="font-mono font-bold text-blue-400">
+                        +{trader.allTimeRoi.toFixed(0)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={() => handleAnalyze(trader.address)}
+                    className="flex-1 py-1.5 px-3 rounded-lg bg-surface hover:bg-gray-800 border border-surface-border text-xs text-gray-200 hover:text-white font-medium flex items-center justify-center gap-1 transition-colors"
+                  >
+                    <span>Auditar a Fondo</span>
+                    <ChevronRight className="w-3 h-3 text-primary" />
+                  </button>
+                  <button
+                    onClick={() => handleAddToBasket(trader)}
+                    className="py-1.5 px-3 rounded-lg bg-primary hover:bg-primary-hover text-black text-xs font-bold transition-all flex items-center gap-1"
+                    title="Añadir a mi cesta de réplica"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Copiar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Manual Search Box */}
       <div className="p-6 rounded-2xl bg-surface border border-surface-border space-y-4">
+        <h2 className="text-base font-bold text-white flex items-center gap-2">
+          <Search className="w-4 h-4 text-primary" /> O Pega una Dirección Específica
+        </h2>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -153,7 +305,7 @@ export default function AnalyticsPage() {
             <input
               type="text"
               required
-              placeholder="Pega la dirección de la billetera (0x...)"
+              placeholder="0x... (Pega cualquier billetera de Hyperliquid)"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               className="w-full pl-11 pr-4 py-3 rounded-xl bg-background border border-surface-border text-white text-sm placeholder-gray-500 focus:outline-none focus:border-primary font-mono"
@@ -165,27 +317,9 @@ export default function AnalyticsPage() {
             className="py-3 px-6 rounded-xl bg-primary text-black font-bold text-sm hover:bg-primary-hover shadow-lg shadow-primary/20 transition-all flex items-center justify-center gap-2"
           >
             {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-            {loading ? "Analizando en directo..." : "Ejecutar Análisis"}
+            {loading ? "Analizando..." : "Auditar Billetera"}
           </button>
         </form>
-
-        {/* Quick Click Chips */}
-        <div className="flex flex-wrap items-center gap-2 pt-2">
-          <span className="text-xs text-gray-400 font-semibold">Análisis Rápido:</span>
-          {QUICK_TRADERS.map((qt, idx) => (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => {
-                setAddress(qt.addr);
-                handleAnalyze(qt.addr);
-              }}
-              className="px-3 py-1 rounded-lg bg-background/80 hover:bg-gray-800 border border-surface-border text-xs text-gray-300 hover:text-white transition-colors"
-            >
-              {qt.name}
-            </button>
-          ))}
-        </div>
 
         {error && (
           <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
@@ -213,7 +347,7 @@ export default function AnalyticsPage() {
 
             <div className="flex items-center gap-3">
               <button
-                onClick={handleAddToBasket}
+                onClick={() => handleAddToBasket()}
                 className="px-5 py-2.5 rounded-xl bg-primary text-black font-bold text-xs hover:bg-primary-hover shadow-lg shadow-primary/20 transition-all flex items-center gap-2"
               >
                 {addedSuccess ? <CheckCircle2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />}

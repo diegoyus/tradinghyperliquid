@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 const TELEGRAM_BOT_TOKEN = "8619700844:AAHKO9gGk--e4jYPvC7tXrgGEPaohFrbyqI";
 const HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info";
+const LEADERBOARD_URL = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard";
 const APP_URL = "https://web-swart-phi-g84f3eyklo.vercel.app";
 
 async function sendTelegramReply(chatId: number | string, text: string) {
@@ -38,21 +39,86 @@ export async function POST(req: Request) {
     if (command === "/start" || command === "/ayuda" || command === "/help") {
       const msg = `👋 <b>¡Hola! Soy tu Asistente 24/7 de Copy Trading en Hyperliquid.</b>
 
-Puedes pedirme información en cualquier momento usando estos comandos:
+No necesitas buscar direcciones manualmente; puedo escanear todo el exchange por ti:
 
+🔥 <b>/descubrir</b> o <b>/top</b> - Escanear el leaderboard y encontrar las mejores billeteras a copiar
 📊 /saldo - Consultar saldo virtual, PnL y rendimiento
 📈 /posiciones - Ver posiciones abiertas en directo
 👥 /traders - Ver traders en tu cesta y asignación %
-🔍 /analizar &lt;0x...&gt; - Auditar cualquier billetera on-chain
+🔍 /analizar [0x...] - Auditar una billetera específica
 🌐 /web - Enlace directo a tu plataforma
-🆔 /id - Ver tu Chat ID de Telegram
-
-<i>💡 Tu bot está sincronizado 24/7 con los servidores en la nube.</i>`;
+🆔 /id - Ver tu Chat ID de Telegram`;
       await sendTelegramReply(chatId, msg);
       return NextResponse.json({ ok: true });
     }
 
-    // 2. Comando /saldo o /balance
+    // 2. Comando /descubrir o /top o /escanear (AUTOMATIC SCANNER!)
+    if (command === "/descubrir" || command === "/top" || command === "/escanear") {
+      await sendTelegramReply(chatId, "⚡ <i>Escaneando más de 43.000 traders en Hyperliquid Mainnet en busca de las carteras más rentables y consistentes...</i>");
+
+      try {
+        const lbRes = await fetch(LEADERBOARD_URL, { next: { revalidate: 300 } });
+        if (!lbRes.ok) throw new Error("Error al consultar leaderboard");
+        const data = await lbRes.json();
+        const rows = data?.leaderboardRows || [];
+
+        const validTraders = rows
+          .map((row: any) => {
+            const address = row.ethAddress || "";
+            const accountValue = parseFloat(row.accountValue || "0");
+            const perfMap: Record<string, any> = {};
+            (row.windowPerformances || []).forEach(([period, stats]: [string, any]) => {
+              perfMap[period] = {
+                pnl: parseFloat(stats.pnl || "0"),
+                roi: parseFloat(stats.roi || "0") * 100,
+              };
+            });
+            const month = perfMap["month"] || { pnl: 0, roi: 0 };
+            const allTime = perfMap["allTime"] || { pnl: 0, roi: 0 };
+
+            let score = 5.0;
+            if (month.roi > 30) score += 2.0;
+            else if (month.roi > 10) score += 1.0;
+            if (allTime.roi > 100) score += 1.5;
+            else if (allTime.roi > 30) score += 0.8;
+            if (accountValue >= 50000) score += 1.0;
+            score = Math.min(Math.max(score, 1.0), 9.9);
+
+            return {
+              address,
+              accountValue,
+              monthPnl: month.pnl,
+              monthRoi: month.roi,
+              allTimePnl: allTime.pnl,
+              allTimeRoi: allTime.roi,
+              score: score.toFixed(1),
+            };
+          })
+          .filter((t: any) => t.accountValue >= 25000 && t.monthRoi > 10 && t.allTimePnl > 0)
+          .sort((a: any, b: any) => parseFloat(b.score) - parseFloat(a.score) || b.allTimePnl - a.allTimePnl)
+          .slice(0, 5);
+
+        let msg = `🏆 <b>Top 5 Mejores Billeteras Encontradas en Hyperliquid:</b>\n\n`;
+
+        validTraders.forEach((t: any, idx: number) => {
+          const medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : "🔹";
+          msg += `${medal} <b>Trader #${idx + 1}</b> (★ <b>${t.score}/10</b>)
+• <b>Dirección:</b> <code>${t.address}</code>
+• <b>Saldo:</b> $${t.accountValue.toLocaleString("en-US", { maximumFractionDigits: 0 })} USD
+• <b>ROI Mensual:</b> 🟢 +${t.monthRoi.toFixed(1)}% (+$${t.monthPnl.toLocaleString("en-US", { maximumFractionDigits: 0 })})
+• <b>ROI Histórico:</b> 🚀 +${t.allTimeRoi.toFixed(1)}% (+$${t.allTimePnl.toLocaleString("en-US", { maximumFractionDigits: 0 })})
+👉 <i>Para auditar: /analizar ${t.address}</i>\n\n`;
+        });
+
+        msg += `💡 <i>Puedes añadir cualquiera de estas direcciones a tu cesta directamente en <a href="${APP_URL}/traders">tu panel web</a>.</i>`;
+        await sendTelegramReply(chatId, msg);
+      } catch (err: any) {
+        await sendTelegramReply(chatId, `❌ Error al escanear el leaderboard: ${err.message}`);
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    // 3. Comando /saldo o /balance
     if (command === "/saldo" || command === "/balance") {
       const msg = `💰 <b>Resumen de tu Cartera Virtual:</b>
 
@@ -68,7 +134,7 @@ Puedes pedirme información en cualquier momento usando estos comandos:
       return NextResponse.json({ ok: true });
     }
 
-    // 3. Comando /posiciones o /positions
+    // 4. Comando /posiciones o /positions
     if (command === "/posiciones" || command === "/positions") {
       const msg = `📈 <b>Posiciones Abiertas en este Momento:</b>
 
@@ -89,7 +155,7 @@ Puedes pedirme información en cualquier momento usando estos comandos:
       return NextResponse.json({ ok: true });
     }
 
-    // 4. Comando /traders o /cesta
+    // 5. Comando /traders o /cesta
     if (command === "/traders" || command === "/cesta") {
       const msg = `👥 <b>Tu Cesta de Copy Trading Activa:</b>
 
@@ -113,14 +179,14 @@ Puedes pedirme información en cualquier momento usando estos comandos:
       return NextResponse.json({ ok: true });
     }
 
-    // 5. Comando /analizar <0x...>
+    // 6. Comando /analizar <0x...>
     if (command === "/analizar" || command === "/analyze") {
       const targetAddr = args || "0x337afda118de433f5a8c8ad6d6ef48b76d027a06";
 
       if (!targetAddr.startsWith("0x") || targetAddr.length !== 42) {
         await sendTelegramReply(
           chatId,
-          "❌ Debes indicar una dirección válida. Ejemplo:\n<code>/analizar 0x337afda118de433f5a8c8ad6d6ef48b76d027a06</code>"
+          "❌ Debes indicar una dirección válida. Ejemplo:\n<code>/analizar 0x337afda118de433f5a8c8ad6d6ef48b76d027a06</code>\n\n💡 O escribe <b>/descubrir</b> para que busque las mejores por ti."
         );
         return NextResponse.json({ ok: true });
       }
@@ -165,7 +231,7 @@ Puedes pedirme información en cualquier momento usando estos comandos:
       return NextResponse.json({ ok: true });
     }
 
-    // 6. Comando /web
+    // 7. Comando /web
     if (command === "/web" || command === "/app") {
       await sendTelegramReply(
         chatId,
@@ -174,7 +240,7 @@ Puedes pedirme información en cualquier momento usando estos comandos:
       return NextResponse.json({ ok: true });
     }
 
-    // 7. Comando /id
+    // 8. Comando /id
     if (command === "/id") {
       await sendTelegramReply(
         chatId,
@@ -186,7 +252,7 @@ Puedes pedirme información en cualquier momento usando estos comandos:
     // Cualquier otro texto
     await sendTelegramReply(
       chatId,
-      `❓ No reconozco ese comando.\n\nPrueba a escribir:\n/saldo - Ver tu saldo y PnL\n/posiciones - Ver órdenes activas\n/traders - Ver tu cesta de líderes\n/ayuda - Ver todos los comandos`
+      `❓ No reconozco ese comando.\n\nPrueba a escribir:\n🔥 <b>/descubrir</b> - Buscar las mejores carteras automáticamente\n📊 /saldo - Ver tu saldo y PnL\n📈 /posiciones - Ver órdenes activas\n/ayuda - Ver todos los comandos`
     );
 
     return NextResponse.json({ ok: true });
