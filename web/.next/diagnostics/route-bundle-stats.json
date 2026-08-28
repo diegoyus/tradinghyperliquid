@@ -1,10 +1,10 @@
 [
   {
     "route": "/dashboard",
-    "firstLoadUncompressedJsBytes": 871132,
+    "firstLoadUncompressedJsBytes": 871447,
     "firstLoadChunkPaths": [
       ".next/static/chunks/1v28weday-aas.js",
-      ".next/static/chunks/3f7f6z_o3xdov.js",
+      ".next/static/chunks/3hnsrt-1ni_ke.js",
       ".next/static/chunks/2378qixee599t.js",
       ".next/static/chunks/3mc6dra1m0098.js",
       ".next/static/chunks/2i51e627rllld.js",
@@ -14,11 +14,11 @@
     ]
   },
   {
-    "route": "/analytics",
-    "firstLoadUncompressedJsBytes": 487858,
+    "route": "/traders",
+    "firstLoadUncompressedJsBytes": 488571,
     "firstLoadChunkPaths": [
       ".next/static/chunks/1v28weday-aas.js",
-      ".next/static/chunks/43uxjey6kxhh0.js",
+      ".next/static/chunks/11xx5wylod2a8.js",
       ".next/static/chunks/3mc6dra1m0098.js",
       ".next/static/chunks/2i51e627rllld.js",
       ".next/static/chunks/3byuobrkyz9bj.js",
@@ -27,11 +27,11 @@
     ]
   },
   {
-    "route": "/traders",
-    "firstLoadUncompressedJsBytes": 480661,
+    "route": "/analytics",
+    "firstLoadUncompressedJsBytes": 488173,
     "firstLoadChunkPaths": [
       ".next/static/chunks/1v28weday-aas.js",
-      ".next/static/chunks/1du8xz_-w5u3x.js",
+      ".next/static/chunks/0bnrrlto9u4xh.js",
       ".next/static/chunks/3mc6dra1m0098.js",
       ".next/static/chunks/2i51e627rllld.js",
       ".next/static/chunks/3byuobrkyz9bj.js",
@@ -41,10 +41,10 @@
   },
   {
     "route": "/settings",
-    "firstLoadUncompressedJsBytes": 476393,
+    "firstLoadUncompressedJsBytes": 476708,
     "firstLoadChunkPaths": [
       ".next/static/chunks/1v28weday-aas.js",
-      ".next/static/chunks/1zsyx-wn-vrb_.js",
+      ".next/static/chunks/3o7oteczl8lxy.js",
       ".next/static/chunks/3mc6dra1m0098.js",
       ".next/static/chunks/2i51e627rllld.js",
       ".next/static/chunks/3byuobrkyz9bj.js",
@@ -54,10 +54,10 @@
   },
   {
     "route": "/auth",
-    "firstLoadUncompressedJsBytes": 474935,
+    "firstLoadUncompressedJsBytes": 475250,
     "firstLoadChunkPaths": [
       ".next/static/chunks/1v28weday-aas.js",
-      ".next/static/chunks/0jc9z2m22lcgz.js",
+      ".next/static/chunks/34-np6n9rl3gm.js",
       ".next/static/chunks/3mc6dra1m0098.js",
       ".next/static/chunks/2i51e627rllld.js",
       ".next/static/chunks/3byuobrkyz9bj.js",

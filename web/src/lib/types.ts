@@ -5,6 +5,14 @@ export interface TraderConfig {
   allocation_pct: number;
   risk_multiplier: number;
   max_leverage: number;
+  stop_loss_pct: number;
+  max_trade_sizing_pct: number;
+}
+
+export interface GlobalRiskSettings {
+  circuit_breaker_pct: number;
+  emergency_stop_enabled: boolean;
+  max_global_leverage: number;
 }
 
 export interface Position {
@@ -50,6 +58,7 @@ export interface UserProfile {
   realized_pnl: number;
   peak_balance: number;
   traders: TraderConfig[];
+  global_risk: GlobalRiskSettings;
   positions: Record<string, Position>;
   trade_history: TradeHistoryItem[];
   equity_history: EquityPoint[];

@@ -1,4 +1,10 @@
-import { UserProfile, TraderConfig } from "./types";
+import { UserProfile, TraderConfig, GlobalRiskSettings } from "./types";
+
+export const DEFAULT_GLOBAL_RISK: GlobalRiskSettings = {
+  circuit_breaker_pct: 15.0,
+  emergency_stop_enabled: true,
+  max_global_leverage: 10,
+};
 
 export const DEFAULT_TRADERS: TraderConfig[] = [
   {
@@ -8,6 +14,8 @@ export const DEFAULT_TRADERS: TraderConfig[] = [
     allocation_pct: 40.0,
     risk_multiplier: 1.0,
     max_leverage: 10,
+    stop_loss_pct: 5.0,
+    max_trade_sizing_pct: 25.0,
   },
   {
     name: "Sticky (Scalping)",
@@ -16,22 +24,28 @@ export const DEFAULT_TRADERS: TraderConfig[] = [
     allocation_pct: 30.0,
     risk_multiplier: 1.0,
     max_leverage: 10,
+    stop_loss_pct: 6.0,
+    max_trade_sizing_pct: 20.0,
   },
   {
     name: "Macro / Acciones",
     score: "8.9/10",
     address: "0xb6db1b4dc6244f86e482d834739d949d799e4da5",
     allocation_pct: 20.0,
-    risk_multiplier: 1.0,
-    max_leverage: 10,
+    risk_multiplier: 0.8,
+    max_leverage: 5,
+    stop_loss_pct: 8.0,
+    max_trade_sizing_pct: 20.0,
   },
   {
     name: "Especialista SOL",
     score: "8.5/10",
     address: "0xab7fb756330e3983e676f44c03dabda9120aa273",
     allocation_pct: 10.0,
-    risk_multiplier: 1.0,
-    max_leverage: 10,
+    risk_multiplier: 0.8,
+    max_leverage: 5,
+    stop_loss_pct: 7.0,
+    max_trade_sizing_pct: 15.0,
   },
 ];
 
@@ -45,6 +59,7 @@ const INITIAL_PROFILE: UserProfile = {
   realized_pnl: 4850.25,
   peak_balance: 15200.0,
   traders: DEFAULT_TRADERS,
+  global_risk: DEFAULT_GLOBAL_RISK,
   positions: {
     BTC_0x337a: {
       trader_name: "El Francotirador",
@@ -88,26 +103,6 @@ const INITIAL_PROFILE: UserProfile = {
       pnl: 680.0,
       balance_after: 14509.75,
     },
-    {
-      time: "Ayer 22:45",
-      trader: "Macro / Acciones",
-      coin: "BTC",
-      dir: "Close Long",
-      px: 65100.0,
-      sz: 0.2,
-      pnl: 820.0,
-      balance_after: 13829.75,
-    },
-    {
-      time: "Ayer 19:30",
-      trader: "Especialista SOL",
-      coin: "SOL",
-      dir: "Close Long",
-      px: 152.4,
-      sz: 25,
-      pnl: 410.25,
-      balance_after: 13009.75,
-    },
   ],
   equity_history: [
     { time: "Día 1", balance: 10000.0 },
@@ -135,7 +130,19 @@ export function getStoredProfile(): UserProfile {
     return INITIAL_PROFILE;
   }
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (!parsed.global_risk) {
+      parsed.global_risk = DEFAULT_GLOBAL_RISK;
+    }
+    // Asegurar que los traders tengan todos los campos de riesgo
+    parsed.traders = (parsed.traders || []).map((t: any) => ({
+      ...t,
+      stop_loss_pct: t.stop_loss_pct ?? 5.0,
+      max_trade_sizing_pct: t.max_trade_sizing_pct ?? 25.0,
+      risk_multiplier: t.risk_multiplier ?? 1.0,
+      max_leverage: t.max_leverage ?? 10,
+    }));
+    return parsed;
   } catch (e) {
     return INITIAL_PROFILE;
   }
@@ -150,6 +157,13 @@ export function saveStoredProfile(profile: UserProfile): void {
 export function updateTradersConfig(traders: TraderConfig[]): UserProfile {
   const profile = getStoredProfile();
   profile.traders = traders;
+  saveStoredProfile(profile);
+  return profile;
+}
+
+export function updateGlobalRisk(risk: GlobalRiskSettings): UserProfile {
+  const profile = getStoredProfile();
+  profile.global_risk = risk;
   saveStoredProfile(profile);
   return profile;
 }

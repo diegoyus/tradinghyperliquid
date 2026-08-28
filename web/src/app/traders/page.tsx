@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Sliders, Shield, Star, CheckCircle2, AlertCircle } from "lucide-react";
-import { getStoredProfile, updateTradersConfig } from "@/lib/storage";
+import { Plus, Trash2, Sliders, Shield, Star, CheckCircle2, AlertCircle, ShieldAlert, ChevronDown, ChevronUp, Zap, Gauge } from "lucide-react";
+import { getStoredProfile, updateTradersConfig, updateGlobalRisk } from "@/lib/storage";
 import { TraderConfig, UserProfile } from "@/lib/types";
 
 const SUGGESTED_TRADERS = [
@@ -50,6 +50,7 @@ export default function TradersPage() {
   const [customName, setCustomName] = useState("");
   const [customAlloc, setCustomAlloc] = useState(25);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [expandedTrader, setExpandedTrader] = useState<number | null>(null);
 
   useEffect(() => {
     setProfile(getStoredProfile());
@@ -59,9 +60,46 @@ export default function TradersPage() {
 
   const totalAlloc = profile.traders.reduce((acc, t) => acc + (t.allocation_pct || 0), 0);
 
-  const handleAllocationChange = (index: number, newAlloc: number) => {
+  const flashSaved = () => {
+    setSavedSuccess(true);
+    setTimeout(() => setSavedSuccess(false), 2000);
+  };
+
+  const handleUpdateTraderField = (index: number, field: keyof TraderConfig, value: any) => {
     const updated = [...profile.traders];
-    updated[index].allocation_pct = newAlloc;
+    updated[index] = { ...updated[index], [field]: value };
+    const newProfile = updateTradersConfig(updated);
+    setProfile({ ...newProfile });
+    flashSaved();
+  };
+
+  const handleApplyPreset = (index: number, preset: "CONSERVATIVE" | "BALANCED" | "AGGRESSIVE") => {
+    const updated = [...profile.traders];
+    if (preset === "CONSERVATIVE") {
+      updated[index] = {
+        ...updated[index],
+        risk_multiplier: 0.6,
+        max_leverage: 3,
+        stop_loss_pct: 4.0,
+        max_trade_sizing_pct: 15.0,
+      };
+    } else if (preset === "BALANCED") {
+      updated[index] = {
+        ...updated[index],
+        risk_multiplier: 1.0,
+        max_leverage: 10,
+        stop_loss_pct: 6.0,
+        max_trade_sizing_pct: 25.0,
+      };
+    } else if (preset === "AGGRESSIVE") {
+      updated[index] = {
+        ...updated[index],
+        risk_multiplier: 1.5,
+        max_leverage: 20,
+        stop_loss_pct: 10.0,
+        max_trade_sizing_pct: 35.0,
+      };
+    }
     const newProfile = updateTradersConfig(updated);
     setProfile({ ...newProfile });
     flashSaved();
@@ -87,6 +125,8 @@ export default function TradersPage() {
       allocation_pct: Number(customAlloc),
       risk_multiplier: 1.0,
       max_leverage: 10,
+      stop_loss_pct: 5.0,
+      max_trade_sizing_pct: 25.0,
     };
     const updated = [...profile.traders, newTrader];
     const newProfile = updateTradersConfig(updated);
@@ -109,6 +149,8 @@ export default function TradersPage() {
       allocation_pct: 25.0,
       risk_multiplier: 1.0,
       max_leverage: 10,
+      stop_loss_pct: 5.0,
+      max_trade_sizing_pct: 25.0,
     };
     const updated = [...profile.traders, newTrader];
     const newProfile = updateTradersConfig(updated);
@@ -116,9 +158,11 @@ export default function TradersPage() {
     flashSaved();
   };
 
-  const flashSaved = () => {
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 2000);
+  const handleUpdateGlobalCircuitBreaker = (pct: number) => {
+    const updated = { ...profile.global_risk, circuit_breaker_pct: pct };
+    const newProfile = updateGlobalRisk(updated);
+    setProfile({ ...newProfile });
+    flashSaved();
   };
 
   return (
@@ -126,16 +170,56 @@ export default function TradersPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-surface-border pb-6">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white">Cesta de Traders</h1>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-white">Cesta de Traders & Gestión de Riesgo</h1>
           <p className="text-sm text-gray-400 mt-1">
-            Personaliza qué traders copia tu cuenta y qué porcentaje (%) de tu capital virtual asignas a cada uno.
+            Personaliza el apalancamiento máximo, Stop-Loss independiente, multiplicador y porcentajes (%) de cada trader.
           </p>
         </div>
         {savedSuccess && (
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 text-xs font-semibold border border-emerald-500/30">
-            <CheckCircle2 className="w-4 h-4" /> Cambios guardados
+            <CheckCircle2 className="w-4 h-4" /> Ajustes guardados
           </div>
         )}
+      </div>
+
+      {/* Global Safety & Circuit Breaker Guard Card */}
+      <div className="p-6 rounded-2xl bg-surface border border-surface-border space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400">
+              <ShieldAlert className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                Circuit Breaker Global (Parada de Emergencia)
+              </h2>
+              <p className="text-xs text-gray-400">
+                Si la pérdida total acumulada de la cartera alcanza este límite, el bot detiene inmediatamente la réplica de todas las cuentas.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 bg-background px-4 py-2 rounded-xl border border-surface-border">
+            <span className="text-xs text-gray-400 font-semibold">Límite de Caída:</span>
+            <span className="text-base font-bold text-red-400 font-mono">-{profile.global_risk.circuit_breaker_pct}%</span>
+          </div>
+        </div>
+
+        <div className="pt-2">
+          <div className="flex justify-between text-xs text-gray-400 mb-1.5">
+            <span>Sensibilidad del Circuit Breaker:</span>
+            <span className="text-gray-300">Pausar si cae más de un <strong>{profile.global_risk.circuit_breaker_pct}%</strong></span>
+          </div>
+          <input
+            type="range"
+            min="5"
+            max="30"
+            step="1"
+            value={profile.global_risk.circuit_breaker_pct}
+            onChange={(e) => handleUpdateGlobalCircuitBreaker(Number(e.target.value))}
+            className="w-full accent-red-500 cursor-pointer"
+          />
+        </div>
       </div>
 
       {/* Allocation Status Bar */}
@@ -169,56 +253,184 @@ export default function TradersPage() {
         )}
       </div>
 
-      {/* Current User Basket */}
+      {/* Current User Basket with Advanced Risk Sliders */}
       <div className="space-y-4">
-        <h2 className="text-lg font-bold text-white">Tu Cesta Activa ({profile.traders.length} traders)</h2>
+        <h2 className="text-lg font-bold text-white">Tu Cesta Activa & Ajustes Individuales ({profile.traders.length} traders)</h2>
 
         {profile.traders.length === 0 ? (
           <div className="p-8 rounded-2xl bg-surface border border-surface-border text-center text-gray-500 text-sm">
             No tienes ningún trader en tu cesta. Añade uno de los recomendados a continuación.
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {profile.traders.map((t, idx) => (
-              <div key={idx} className="p-5 rounded-2xl bg-surface border border-surface-border hover:border-gray-700 transition-all space-y-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-white text-base">{t.name}</h3>
-                      {t.score && (
-                        <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-primary/10 text-emerald-400 border border-primary/30">
-                          ★ {t.score}
+          <div className="grid grid-cols-1 gap-5">
+            {profile.traders.map((t, idx) => {
+              const isExpanded = expandedTrader === idx;
+              return (
+                <div key={idx} className="p-6 rounded-2xl bg-surface border border-surface-border hover:border-gray-700 transition-all space-y-5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-white text-base">{t.name}</h3>
+                        {t.score && (
+                          <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-primary/10 text-emerald-400 border border-primary/30">
+                            ★ {t.score}
+                          </span>
+                        )}
+                        <span className="text-xs font-mono text-gray-400 bg-background px-2 py-0.5 rounded border border-surface-border">
+                          {t.allocation_pct}% asignado
                         </span>
-                      )}
+                      </div>
+                      <div className="text-xs text-gray-500 font-mono mt-0.5">{t.address}</div>
                     </div>
-                    <div className="text-xs text-gray-500 font-mono mt-0.5">{t.address.slice(0, 10)}...{t.address.slice(-6)}</div>
-                  </div>
-                  <button
-                    onClick={() => handleRemoveTrader(idx)}
-                    className="text-gray-500 hover:text-red-400 p-1.5 rounded-lg hover:bg-gray-800 transition-colors"
-                    title="Eliminar de mi cesta"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
 
-                <div className="space-y-1.5">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-gray-400">Asignación de Cartera:</span>
-                    <span className="font-bold text-emerald-400 font-mono">{t.allocation_pct}%</span>
+                    <div className="flex items-center gap-2 self-end sm:self-auto">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedTrader(isExpanded ? null : idx)}
+                        className="px-3 py-1.5 rounded-lg bg-background hover:bg-gray-800 border border-surface-border text-xs text-gray-300 flex items-center gap-1.5 transition-colors"
+                      >
+                        <Sliders className="w-3.5 h-3.5 text-primary" />
+                        <span>{isExpanded ? "Ocultar Ajustes de Riesgo" : "Ajustes de Riesgo"}</span>
+                        {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      </button>
+                      <button
+                        onClick={() => handleRemoveTrader(idx)}
+                        className="text-gray-500 hover:text-red-400 p-2 rounded-lg hover:bg-gray-800 transition-colors"
+                        title="Eliminar trader"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
-                  <input
-                    type="range"
-                    min="5"
-                    max="100"
-                    step="5"
-                    value={t.allocation_pct}
-                    onChange={(e) => handleAllocationChange(idx, Number(e.target.value))}
-                    className="w-full accent-primary cursor-pointer"
-                  />
+
+                  {/* Main Allocation Slider */}
+                  <div className="space-y-1.5 pt-1 border-t border-surface-border/60">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-400">Porcentaje de Cartera Asignada:</span>
+                      <span className="font-bold text-emerald-400 font-mono text-sm">{t.allocation_pct}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="5"
+                      max="100"
+                      step="5"
+                      value={t.allocation_pct}
+                      onChange={(e) => handleUpdateTraderField(idx, "allocation_pct", Number(e.target.value))}
+                      className="w-full accent-primary cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Expandable Advanced Risk Controls Panel */}
+                  {isExpanded && (
+                    <div className="p-5 rounded-xl bg-background/80 border border-surface-border space-y-5 animate-fadeIn">
+                      {/* Presets Row */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-surface-border">
+                        <span className="text-xs text-gray-400 font-bold flex items-center gap-1">
+                          <Zap className="w-3.5 h-3.5 text-yellow-400" /> Perfiles Rápidos:
+                        </span>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleApplyPreset(idx, "CONSERVATIVE")}
+                            className="px-2.5 py-1 rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[11px] font-semibold transition-colors"
+                          >
+                            🛡️ Conservador (3x)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleApplyPreset(idx, "BALANCED")}
+                            className="px-2.5 py-1 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[11px] font-semibold transition-colors"
+                          >
+                            ⚖️ Equilibrado (10x)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleApplyPreset(idx, "AGGRESSIVE")}
+                            className="px-2.5 py-1 rounded bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 text-[11px] font-semibold transition-colors"
+                          >
+                            🚀 Agresivo (20x)
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {/* 1. Multiplicador de Riesgo */}
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-400">Multiplicador:</span>
+                            <span className="font-bold text-white font-mono">{t.risk_multiplier}x</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0.2"
+                            max="2.0"
+                            step="0.1"
+                            value={t.risk_multiplier}
+                            onChange={(e) => handleUpdateTraderField(idx, "risk_multiplier", Number(e.target.value))}
+                            className="w-full accent-primary cursor-pointer"
+                          />
+                          <span className="text-[10px] text-gray-500 block">1.0x = tamaño proporcional exacto</span>
+                        </div>
+
+                        {/* 2. Tope Máximo de Apalancamiento */}
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-400">Apalancamiento Máx:</span>
+                            <span className="font-bold text-yellow-400 font-mono">{t.max_leverage}x</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="1"
+                            max="20"
+                            step="1"
+                            value={t.max_leverage}
+                            onChange={(e) => handleUpdateTraderField(idx, "max_leverage", Number(e.target.value))}
+                            className="w-full accent-yellow-400 cursor-pointer"
+                          />
+                          <span className="text-[10px] text-gray-500 block">Tope máximo si el líder usa más</span>
+                        </div>
+
+                        {/* 3. Stop-Loss Independiente por Posición */}
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-400">Stop-Loss Posición:</span>
+                            <span className="font-bold text-red-400 font-mono">-{t.stop_loss_pct}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="2"
+                            max="20"
+                            step="1"
+                            value={t.stop_loss_pct}
+                            onChange={(e) => handleUpdateTraderField(idx, "stop_loss_pct", Number(e.target.value))}
+                            className="w-full accent-red-500 cursor-pointer"
+                          />
+                          <span className="text-[10px] text-gray-500 block">Cerrar si la posición cae este %</span>
+                        </div>
+
+                        {/* 4. Límite de Capital por Trade */}
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-400">Tope por Trade:</span>
+                            <span className="font-bold text-blue-400 font-mono">{t.max_trade_sizing_pct}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="10"
+                            max="50"
+                            step="5"
+                            value={t.max_trade_sizing_pct}
+                            onChange={(e) => handleUpdateTraderField(idx, "max_trade_sizing_pct", Number(e.target.value))}
+                            className="w-full accent-blue-400 cursor-pointer"
+                          />
+                          <span className="text-[10px] text-gray-500 block">Máximo % asignado por orden</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
