@@ -1,6 +1,8 @@
 {
   "/_global-error/page": "/_global-error",
   "/_not-found/page": "/_not-found",
+  "/analytics/page": "/analytics",
+  "/api/analyze-trader/route": "/api/analyze-trader",
   "/api/cron/sync/route": "/api/cron/sync",
   "/api/telegram/test/route": "/api/telegram/test",
   "/auth/page": "/auth",

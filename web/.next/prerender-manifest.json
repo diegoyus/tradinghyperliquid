@@ -78,7 +78,7 @@
       "routeType": "page",
       "response": "complete",
       "compute": "static",
-      "htmlSize": 12387,
+      "htmlSize": 12914,
       "experimentalBypassFor": [
         {
           "type": "header",
@@ -93,6 +93,39 @@
       "initialRevalidateSeconds": false,
       "srcRoute": "/_not-found",
       "dataRoute": "/_not-found.rsc",
+      "allowHeader": [
+        "host",
+        "x-matched-path",
+        "x-prerender-revalidate",
+        "x-prerender-revalidate-if-generated",
+        "x-next-revalidated-tags",
+        "x-next-revalidate-tag-token"
+      ]
+    },
+    "/analytics": {
+      "initialHeaders": {
+        "x-nextjs-stale-time": "300",
+        "x-nextjs-prerender": "1",
+        "x-next-cache-tags": "_N_T_/layout,_N_T_/analytics/layout,_N_T_/analytics/page,_N_T_/analytics"
+      },
+      "routeType": "page",
+      "response": "complete",
+      "compute": "static",
+      "htmlSize": 14003,
+      "experimentalBypassFor": [
+        {
+          "type": "header",
+          "key": "next-action"
+        },
+        {
+          "type": "header",
+          "key": "content-type",
+          "value": "multipart/form-data;.*"
+        }
+      ],
+      "initialRevalidateSeconds": false,
+      "srcRoute": "/analytics",
+      "dataRoute": "/analytics.rsc",
       "allowHeader": [
         "host",
         "x-matched-path",
@@ -144,7 +177,7 @@
       "routeType": "page",
       "response": "complete",
       "compute": "static",
-      "htmlSize": 11594,
+      "htmlSize": 12121,
       "experimentalBypassFor": [
         {
           "type": "header",
@@ -177,7 +210,7 @@
       "routeType": "page",
       "response": "complete",
       "compute": "static",
-      "htmlSize": 10830,
+      "htmlSize": 11357,
       "experimentalBypassFor": [
         {
           "type": "header",
@@ -210,7 +243,7 @@
       "routeType": "page",
       "response": "complete",
       "compute": "static",
-      "htmlSize": 10828,
+      "htmlSize": 11355,
       "experimentalBypassFor": [
         {
           "type": "header",

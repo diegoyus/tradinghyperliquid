@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Users, Settings, LogOut, Activity, Bell } from "lucide-react";
+import { LayoutDashboard, Users, Search, Settings, LogOut, Activity } from "lucide-react";
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -10,6 +10,7 @@ export default function Navbar() {
   const links = [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/traders", label: "Cesta de Traders", icon: Users },
+    { href: "/analytics", label: "Analizador de Carteras", icon: Search },
     { href: "/settings", label: "Ajustes & Telegram", icon: Settings },
   ];
 

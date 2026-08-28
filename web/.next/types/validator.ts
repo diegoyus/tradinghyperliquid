@@ -47,6 +47,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
 }
 
 
+// Validate ../../src/app/analytics/page.tsx
+{
+  type __IsExpected<Specific extends AppPageConfig<"/analytics">> = Specific
+  const handler = {} as typeof import("../../src/app/analytics/page.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../src/app/auth/page.tsx
 {
   type __IsExpected<Specific extends AppPageConfig<"/auth">> = Specific
@@ -87,6 +96,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
 {
   type __IsExpected<Specific extends AppPageConfig<"/traders">> = Specific
   const handler = {} as typeof import("../../src/app/traders/page.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../src/app/api/analyze-trader/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/analyze-trader">> = Specific
+  const handler = {} as typeof import("../../src/app/api/analyze-trader/route.js")
   type __Check = __IsExpected<typeof handler>
   // @ts-ignore
   type __Unused = __Check
