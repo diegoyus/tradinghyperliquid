@@ -2,6 +2,94 @@ import { NextResponse } from "next/server";
 
 const HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info";
 
+// Caché en memoria para los nombres de tokens Spot y Perpetuos
+let symbolMapCache: Record<string, string> = {};
+let lastCacheTime = 0;
+
+async function getSymbolMap(): Promise<Record<string, string>> {
+  const now = Date.now();
+  if (Object.keys(symbolMapCache).length > 0 && now - lastCacheTime < 1000 * 60 * 30) {
+    return symbolMapCache;
+  }
+
+  try {
+    const map: Record<string, string> = {};
+
+    // 1. Obtener nombres de perpetuos (Perps)
+    const perpsRes = await fetch(HYPERLIQUID_INFO_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "meta" }),
+    });
+    if (perpsRes.ok) {
+      const perpsData = await perpsRes.json();
+      (perpsData.universe || []).forEach((u: any, idx: number) => {
+        if (u?.name) {
+          map[u.name] = u.name;
+          map[`${idx}`] = u.name;
+        }
+      });
+    }
+
+    // 2. Obtener nombres de tokens Spot
+    const spotRes = await fetch(HYPERLIQUID_INFO_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "spotMeta" }),
+    });
+    if (spotRes.ok) {
+      const spotData = await spotRes.json();
+      const tokens = spotData.tokens || [];
+      const universe = spotData.universe || [];
+
+      // Mapear universe spot pairs
+      universe.forEach((pair: any, idx: number) => {
+        const baseIdx = pair.tokens?.[0];
+        const baseName = tokens[baseIdx]?.name || `SPOT-${idx}`;
+        map[`@${idx}`] = baseName;
+        map[`@${idx + 1}`] = baseName;
+        map[`${idx + 10000}`] = baseName;
+      });
+
+      // Mapear tokens spot individuales
+      tokens.forEach((t: any, idx: number) => {
+        if (t?.name) {
+          map[`@${t.index}`] = t.name;
+          map[`@${idx}`] = t.name;
+        }
+      });
+    }
+
+    symbolMapCache = map;
+    lastCacheTime = now;
+    return map;
+  } catch (e) {
+    console.error("Error al cargar symbolMap:", e);
+    return symbolMapCache;
+  }
+}
+
+function resolveCoinSymbol(rawCoin: string, symbolMap: Record<string, string>): string {
+  if (!rawCoin) return "UNKNOWN";
+  const clean = String(rawCoin).trim();
+  if (symbolMap[clean]) return symbolMap[clean];
+
+  // Si empieza por @ (token Spot de Hyperliquid)
+  if (clean.startsWith("@")) {
+    const spotIndex = clean.slice(1);
+    if (symbolMap[clean]) return symbolMap[clean];
+    if (symbolMap[spotIndex]) return symbolMap[spotIndex];
+    return `SPOT-${spotIndex}`;
+  }
+
+  // Si es un índice numérico
+  if (/^\d+$/.test(clean) && symbolMap[clean]) {
+    return symbolMap[clean];
+  }
+
+  return clean.toUpperCase();
+}
+
 export async function POST(req: Request) {
   try {
     const { address } = await req.json();
@@ -14,6 +102,7 @@ export async function POST(req: Request) {
     }
 
     const cleanAddress = address.trim().toLowerCase();
+    const symbolMap = await getSymbolMap();
 
     // 1. Consultar estado actual (saldo y posiciones abiertas)
     const stateRes = await fetch(HYPERLIQUID_INFO_URL, {
@@ -23,29 +112,32 @@ export async function POST(req: Request) {
     });
     const userState = stateRes.ok ? await stateRes.json() : {};
 
-    // 2. Consultar historial de órdenes (fills)
+    // 2. Consultar historial COMPLETO de órdenes (fills)
     const fillsRes = await fetch(HYPERLIQUID_INFO_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: "userFills", user: cleanAddress }),
     });
-    const fills = fillsRes.ok && Array.isArray(await fillsRes.json()) ? await (await fetch(HYPERLIQUID_INFO_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "userFills", user: cleanAddress }),
-    })).json() : [];
+    const rawFills = fillsRes.ok && Array.isArray(await fillsRes.json())
+      ? await (await fetch(HYPERLIQUID_INFO_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "userFills", user: cleanAddress }),
+        })).json()
+      : [];
 
     const marginSummary = userState?.marginSummary || {};
     const accountValue = parseFloat(marginSummary?.accountValue || "0");
     const totalMarginUsed = parseFloat(marginSummary?.totalMarginUsed || "0");
 
-    // Procesar posiciones abiertas
+    // Procesar posiciones abiertas con nombres legibles
     const rawPositions = userState?.assetPositions || [];
     const openPositions = rawPositions.map((p: any) => {
       const pos = p.position || {};
       const szi = parseFloat(pos.szi || "0");
+      const coinName = resolveCoinSymbol(pos.coin, symbolMap);
       return {
-        coin: pos.coin || "N/A",
+        coin: coinName,
         side: szi > 0 ? "LONG" : "SHORT",
         size: Math.abs(szi),
         entryPx: parseFloat(pos.entryPx || "0"),
@@ -55,33 +147,42 @@ export async function POST(req: Request) {
       };
     });
 
-    // Procesar historial de trades (últimos 500)
-    const recentFills = fills.slice(0, 500);
+    // Procesar TODO el track record histórico
     const coinCounts: Record<string, number> = {};
     const closedTrades: number[] = [];
 
-    const formattedTrades = recentFills.map((f: any) => {
+    const formattedTrades = rawFills.map((f: any, idx: number) => {
       const pnl = parseFloat(f.closedPnl || "0");
-      const coin = f.coin || "N/A";
-      coinCounts[coin] = (coinCounts[coin] || 0) + 1;
+      const coinName = resolveCoinSymbol(f.coin, symbolMap);
+      coinCounts[coinName] = (coinCounts[coinName] || 0) + 1;
 
       if (pnl !== 0) {
         closedTrades.push(pnl);
       }
 
       return {
-        time: new Date(f.time).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" }),
-        coin: coin,
+        id: idx + 1,
+        time: new Date(f.time).toLocaleString("es-ES", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
+        timestamp: f.time,
+        coin: coinName,
         dir: f.dir || "Trade",
         side: f.side === "B" ? "COMPRA" : "VENTA",
         px: parseFloat(f.px || "0"),
         sz: parseFloat(f.sz || "0"),
         closedPnl: pnl,
         fee: parseFloat(f.fee || "0"),
+        hash: f.hash || "",
       };
     });
 
-    // Estadísticas
+    // Estadísticas completas
     const wins = closedTrades.filter((p) => p > 0);
     const losses = closedTrades.filter((p) => p < 0);
     const totalTrades = closedTrades.length;
@@ -89,6 +190,22 @@ export async function POST(req: Request) {
     const grossProfit = wins.reduce((acc, val) => acc + val, 0);
     const grossLoss = Math.abs(losses.reduce((acc, val) => acc + val, 0));
     const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? 99.0 : 0;
+    const netPnlTotal = closedTrades.reduce((acc, val) => acc + val, 0);
+
+    // Curva de PnL acumulada histórica del trader
+    let runningPnl = 0;
+    const pnlCurve: { tradeIndex: number; time: string; pnl: number }[] = [];
+    const step = Math.max(1, Math.floor(closedTrades.length / 50));
+    [...closedTrades].reverse().forEach((pnl, i) => {
+      runningPnl += pnl;
+      if (i % step === 0 || i === closedTrades.length - 1) {
+        pnlCurve.push({
+          tradeIndex: i + 1,
+          time: `#${i + 1}`,
+          pnl: Math.round(runningPnl),
+        });
+      }
+    });
 
     // Estimación de Max Drawdown histórico
     let peak = 10000;
@@ -118,10 +235,10 @@ export async function POST(req: Request) {
     if (accountValue >= 50000) score += 0.5;
     score = Math.min(Math.max(score, 1.0), 9.9);
 
-    // Activos más operados
+    // Activos más operados (con nombres resueltos)
     const topAssets = Object.entries(coinCounts)
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 4)
+      .slice(0, 6)
       .map(([coin, count]) => ({ coin, count }));
 
     return NextResponse.json({
@@ -133,13 +250,15 @@ export async function POST(req: Request) {
       winRate: winRate.toFixed(1),
       profitFactor: profitFactor.toFixed(2),
       maxDrawdownPct: maxDrawdownPct.toFixed(2),
-      totalFills: fills.length,
+      netPnlTotal,
+      totalFills: rawFills.length,
       closedTradesCount: totalTrades,
       winningTradesCount: wins.length,
       losingTradesCount: losses.length,
       openPositions,
       topAssets,
-      recentTrades: formattedTrades.slice(0, 15),
+      pnlCurve,
+      allTrades: formattedTrades, // TODO EL TRACK RECORD HISTÓRICO
     });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

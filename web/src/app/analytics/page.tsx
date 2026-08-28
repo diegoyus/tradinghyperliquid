@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { Search, Award, TrendingUp, Filter, ArrowUpRight, ArrowDownRight, Plus, CheckCircle2, RefreshCw, X, Compass, Sparkles, ChevronRight } from "lucide-react";
+import { Search, Award, TrendingUp, Filter, ArrowUpRight, ArrowDownRight, Plus, CheckCircle2, RefreshCw, X, Compass, Sparkles, ChevronRight, Download, ChevronLeft } from "lucide-react";
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { getStoredProfile, updateTradersConfig } from "@/lib/storage";
 
 export default function AnalyticsPage() {
@@ -21,6 +22,10 @@ export default function AnalyticsPage() {
   const [selectedResult, setSelectedResult] = useState<"ALL" | "WINS" | "LOSSES">("ALL");
   const [selectedSide, setSelectedSide] = useState<"ALL" | "LONG" | "SHORT">("ALL");
   const [searchTerm, setSearchTerm] = useState<string>("");
+
+  // Paginación del Track Record
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number | "ALL">(50);
 
   // Cargar automáticamente las mejores carteras encontradas en Hyperliquid
   const fetchDiscovered = async (filter: "consistent" | "monthly" | "whales" = "consistent") => {
@@ -58,6 +63,7 @@ export default function AnalyticsPage() {
     setSelectedResult("ALL");
     setSelectedSide("ALL");
     setSearchTerm("");
+    setCurrentPage(1);
 
     try {
       const res = await fetch("/api/analyze-trader", {
@@ -107,18 +113,18 @@ export default function AnalyticsPage() {
 
   // Lista única de monedas operadas
   const availableCoins = useMemo(() => {
-    if (!data?.recentTrades) return [];
+    if (!data?.allTrades) return [];
     const coins = new Set<string>();
-    data.recentTrades.forEach((t: any) => {
+    data.allTrades.forEach((t: any) => {
       if (t.coin) coins.add(t.coin);
     });
     return Array.from(coins);
   }, [data]);
 
-  // Filtrado reactivo de operaciones
+  // Filtrado reactivo de operaciones sobre TODO el track record
   const filteredTrades = useMemo(() => {
-    if (!data?.recentTrades) return [];
-    return data.recentTrades.filter((t: any) => {
+    if (!data?.allTrades) return [];
+    return data.allTrades.filter((t: any) => {
       if (selectedCoin !== "ALL" && t.coin !== selectedCoin) return false;
       if (selectedResult === "WINS" && t.closedPnl <= 0) return false;
       if (selectedResult === "LOSSES" && t.closedPnl >= 0) return false;
@@ -134,6 +140,14 @@ export default function AnalyticsPage() {
       return true;
     });
   }, [data, selectedCoin, selectedResult, selectedSide, searchTerm]);
+
+  // Paginación
+  const totalPages = pageSize === "ALL" ? 1 : Math.ceil(filteredTrades.length / (pageSize as number)) || 1;
+  const paginatedTrades = useMemo(() => {
+    if (pageSize === "ALL") return filteredTrades;
+    const start = (currentPage - 1) * (pageSize as number);
+    return filteredTrades.slice(start, start + (pageSize as number));
+  }, [filteredTrades, currentPage, pageSize]);
 
   // Métricas recalculadas según el filtro aplicado
   const filteredStats = useMemo(() => {
@@ -153,13 +167,34 @@ export default function AnalyticsPage() {
     };
   }, [filteredTrades]);
 
+  // Exportar todo el Track Record a CSV
+  const handleExportCSV = () => {
+    if (!filteredTrades.length) return;
+    const headers = "ID,Fecha,Activo,Direccion,Precio,Cantidad,PnL_Cerrado_USD,Comision_USD,Hash\n";
+    const rows = filteredTrades
+      .map(
+        (t: any) =>
+          `"${t.id}","${t.time}","${t.coin}","${t.dir}","${t.px}","${t.sz}","${t.closedPnl}","${t.fee}","${t.hash}"`
+      )
+      .join("\n");
+
+    const blob = new Blob([headers + rows], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `track_record_${data.address.slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Header */}
       <div className="border-b border-surface-border pb-6">
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-white">Explorador & Analizador de Carteras</h1>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-white">Explorador & Track Record Completo</h1>
         <p className="text-sm text-gray-400 mt-1">
-          Escáner automático del Leaderboard de Hyperliquid (43.000+ traders). Encuentra las billeteras más rentables sin tener que buscarlas tú mismo.
+          Escáner automático del Leaderboard de Hyperliquid (43.000+ traders). Visualiza el historial completo de miles de operaciones sin límites.
         </p>
       </div>
 
@@ -341,11 +376,18 @@ export default function AnalyticsPage() {
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-2">
-                Analizadas {data.totalFills} operaciones históricas ejecutadas en Hyperliquid Mainnet.
+                Track record completo con <strong>{data.totalFills} operaciones auditadas</strong> en Hyperliquid Mainnet.
               </p>
             </div>
 
             <div className="flex items-center gap-3">
+              <button
+                onClick={handleExportCSV}
+                className="px-4 py-2.5 rounded-xl bg-surface hover:bg-gray-800 border border-surface-border text-gray-300 hover:text-white font-semibold text-xs transition-colors flex items-center gap-1.5"
+                title="Descargar historial completo en Excel / CSV"
+              >
+                <Download className="w-4 h-4 text-primary" /> Descargar Track Record (CSV)
+              </button>
               <button
                 onClick={() => handleAddToBasket()}
                 className="px-5 py-2.5 rounded-xl bg-primary text-black font-bold text-xs hover:bg-primary-hover shadow-lg shadow-primary/20 transition-all flex items-center gap-2"
@@ -393,6 +435,55 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
+          {/* Historical PnL Evolution Curve */}
+          {data.pnlCurve && data.pnlCurve.length > 0 && (
+            <div className="p-6 rounded-2xl bg-surface border border-surface-border">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-base font-bold text-white">Evolución Histórica de PnL del Trader</h2>
+                  <p className="text-xs text-gray-400">Curva de crecimiento de ganancias acumuladas a lo largo de todo su historial</p>
+                </div>
+                <span className="text-xs px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-400 font-semibold border border-emerald-500/30">
+                  Track Record Verificado
+                </span>
+              </div>
+
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={data.pnlCurve}>
+                    <defs>
+                      <linearGradient id="traderPnlGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                    <XAxis dataKey="time" stroke="#6b7280" fontSize={11} tickLine={false} />
+                    <YAxis
+                      stroke="#6b7280"
+                      fontSize={11}
+                      domain={["auto", "auto"]}
+                      tickFormatter={(val) => `$${val.toLocaleString()}`}
+                      tickLine={false}
+                    />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: "#111827", borderColor: "#374151", borderRadius: "12px" }}
+                      formatter={(value: any) => [`$${Number(value).toLocaleString()} USD`, "PnL Acumulado"]}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="pnl"
+                      stroke="#10b981"
+                      strokeWidth={2.5}
+                      fillOpacity={1}
+                      fill="url(#traderPnlGradient)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
           {/* Open Positions & Favorite Assets */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Active Open Positions Table */}
@@ -421,7 +512,11 @@ export default function AnalyticsPage() {
                     <tbody className="divide-y divide-surface-border">
                       {data.openPositions.map((pos: any, idx: number) => (
                         <tr key={idx} className="hover:bg-gray-800/40 transition-colors">
-                          <td className="py-2.5 font-bold text-white">{pos.coin}</td>
+                          <td className="py-2.5 font-bold text-white">
+                            <span className="px-2 py-0.5 rounded bg-gray-800 text-gray-100 font-mono">
+                              {pos.coin}
+                            </span>
+                          </td>
                           <td className="py-2.5">
                             <span className={`px-2 py-0.5 rounded font-semibold text-[10px] ${pos.side === "LONG" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}>
                               {pos.side} {pos.leverage}x
@@ -443,16 +538,16 @@ export default function AnalyticsPage() {
             {/* Favorite Assets */}
             <div className="p-6 rounded-2xl bg-surface border border-surface-border space-y-4">
               <h2 className="text-base font-bold text-white">Activos Más Operados</h2>
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 {data.topAssets.map((asset: any, idx: number) => (
                   <div
                     key={idx}
                     onClick={() => setSelectedCoin(asset.coin)}
                     className="flex items-center justify-between p-3 rounded-xl bg-background border border-surface-border hover:border-primary/50 cursor-pointer transition-colors"
-                    title="Haz clic para filtrar por esta moneda"
+                    title="Haz clic para filtrar por este activo"
                   >
-                    <span className="font-bold text-white text-xs flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    <span className="font-bold text-white text-xs flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
                       {asset.coin}
                     </span>
                     <span className="text-xs text-gray-400 font-mono">{asset.count} operaciones</span>
@@ -467,7 +562,7 @@ export default function AnalyticsPage() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-surface-border pb-4">
               <div className="flex items-center gap-2">
                 <Filter className="w-5 h-5 text-primary" />
-                <h2 className="text-base font-bold text-white">Filtrar Operaciones del Trader</h2>
+                <h2 className="text-base font-bold text-white">Filtrar Track Record Histórico</h2>
               </div>
               {(selectedCoin !== "ALL" || selectedResult !== "ALL" || selectedSide !== "ALL" || searchTerm) && (
                 <button
@@ -476,6 +571,7 @@ export default function AnalyticsPage() {
                     setSelectedResult("ALL");
                     setSelectedSide("ALL");
                     setSearchTerm("");
+                    setCurrentPage(1);
                   }}
                   className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 self-start sm:self-auto"
                 >
@@ -490,10 +586,13 @@ export default function AnalyticsPage() {
                 <label className="block text-[11px] font-semibold text-gray-400 uppercase mb-1.5">Filtrar por Activo</label>
                 <select
                   value={selectedCoin}
-                  onChange={(e) => setSelectedCoin(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedCoin(e.target.value);
+                    setCurrentPage(1);
+                  }}
                   className="w-full px-3 py-2 rounded-lg bg-background border border-surface-border text-white text-xs focus:outline-none focus:border-primary cursor-pointer"
                 >
-                  <option value="ALL">Todas las Monedas</option>
+                  <option value="ALL">Todas las Monedas ({availableCoins.length})</option>
                   {availableCoins.map((coin) => (
                     <option key={coin} value={coin}>{coin}</option>
                   ))}
@@ -505,7 +604,10 @@ export default function AnalyticsPage() {
                 <label className="block text-[11px] font-semibold text-gray-400 uppercase mb-1.5">Resultado</label>
                 <select
                   value={selectedResult}
-                  onChange={(e: any) => setSelectedResult(e.target.value)}
+                  onChange={(e: any) => {
+                    setSelectedResult(e.target.value);
+                    setCurrentPage(1);
+                  }}
                   className="w-full px-3 py-2 rounded-lg bg-background border border-surface-border text-white text-xs focus:outline-none focus:border-primary cursor-pointer"
                 >
                   <option value="ALL">Todos los Resultados</option>
@@ -519,7 +621,10 @@ export default function AnalyticsPage() {
                 <label className="block text-[11px] font-semibold text-gray-400 uppercase mb-1.5">Dirección</label>
                 <select
                   value={selectedSide}
-                  onChange={(e: any) => setSelectedSide(e.target.value)}
+                  onChange={(e: any) => {
+                    setSelectedSide(e.target.value);
+                    setCurrentPage(1);
+                  }}
                   className="w-full px-3 py-2 rounded-lg bg-background border border-surface-border text-white text-xs focus:outline-none focus:border-primary cursor-pointer"
                 >
                   <option value="ALL">Todas las Direcciones</option>
@@ -533,9 +638,12 @@ export default function AnalyticsPage() {
                 <label className="block text-[11px] font-semibold text-gray-400 uppercase mb-1.5">Búsqueda rápida</label>
                 <input
                   type="text"
-                  placeholder="Buscar moneda, fecha..."
+                  placeholder="Buscar moneda, fecha, tipo..."
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setCurrentPage(1);
+                  }}
                   className="w-full px-3 py-2 rounded-lg bg-background border border-surface-border text-white text-xs placeholder-gray-500 focus:outline-none focus:border-primary"
                 />
               </div>
@@ -544,7 +652,7 @@ export default function AnalyticsPage() {
             {/* Filtered Metrics Banner */}
             <div className="p-3.5 rounded-xl bg-background/80 border border-surface-border flex flex-wrap items-center justify-between gap-3 text-xs">
               <div className="flex items-center gap-2">
-                <span className="text-gray-400">Mostrando:</span>
+                <span className="text-gray-400">Total Filtrado:</span>
                 <span className="font-bold text-white">{filteredStats.count} operaciones</span>
               </div>
               <div className="flex items-center gap-4 font-mono">
@@ -562,33 +670,60 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          {/* Filtered Trades Table */}
-          <div className="p-6 rounded-2xl bg-surface border border-surface-border">
-            <h2 className="text-base font-bold text-white mb-4">Historial de Operaciones Filtradas ({filteredTrades.length})</h2>
-            
-            {filteredTrades.length === 0 ? (
+          {/* Full Historical Track Record Table with Pagination */}
+          <div className="p-6 rounded-2xl bg-surface border border-surface-border space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-base font-bold text-white">Track Record Histórico Completo ({filteredTrades.length} trades)</h2>
+                <p className="text-xs text-gray-400">Historial ordenado cronológicamente con nombres de tokens verificados</p>
+              </div>
+
+              {/* Page Size Selector */}
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-gray-400">Mostrar:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    const val = e.target.value === "ALL" ? "ALL" : Number(e.target.value);
+                    setPageSize(val);
+                    setCurrentPage(1);
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-background border border-surface-border text-white text-xs focus:outline-none focus:border-primary"
+                >
+                  <option value={25}>25 por página</option>
+                  <option value={50}>50 por página</option>
+                  <option value={100}>100 por página</option>
+                  <option value="ALL">Ver Todo ({filteredTrades.length})</option>
+                </select>
+              </div>
+            </div>
+
+            {paginatedTrades.length === 0 ? (
               <div className="py-12 text-center text-gray-500 text-xs">
                 No hay operaciones que coincidan con los filtros seleccionados.
               </div>
             ) : (
-              <div className="overflow-x-auto max-h-[500px] overflow-y-auto pr-1">
+              <div className="overflow-x-auto max-h-[600px] overflow-y-auto pr-1">
                 <table className="w-full text-left text-xs">
                   <thead className="sticky top-0 bg-surface z-10">
                     <tr className="border-b border-surface-border text-gray-400">
-                      <th className="pb-2.5">Fecha</th>
+                      <th className="pb-2.5">#</th>
+                      <th className="pb-2.5">Fecha y Hora</th>
                       <th className="pb-2.5">Activo</th>
                       <th className="pb-2.5">Acción</th>
                       <th className="pb-2.5">Precio</th>
                       <th className="pb-2.5">Cantidad</th>
+                      <th className="pb-2.5">Comisión</th>
                       <th className="pb-2.5 text-right">PnL Cerrado</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-surface-border">
-                    {filteredTrades.map((t: any, idx: number) => (
-                      <tr key={idx} className="hover:bg-gray-800/40 transition-colors">
-                        <td className="py-2.5 text-gray-400">{t.time}</td>
+                    {paginatedTrades.map((t: any) => (
+                      <tr key={t.id} className="hover:bg-gray-800/40 transition-colors">
+                        <td className="py-2.5 text-gray-500 font-mono text-[11px]">{t.id}</td>
+                        <td className="py-2.5 text-gray-300 font-mono text-[11px]">{t.time}</td>
                         <td className="py-2.5 font-bold text-white">
-                          <span className="px-2 py-0.5 rounded bg-gray-800 text-gray-200 font-mono text-[11px]">
+                          <span className="px-2 py-0.5 rounded bg-gray-800 text-gray-100 font-mono text-[11px]">
                             {t.coin}
                           </span>
                         </td>
@@ -599,6 +734,7 @@ export default function AnalyticsPage() {
                         </td>
                         <td className="py-2.5 font-mono text-white">${t.px.toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
                         <td className="py-2.5 text-gray-400">{t.sz}</td>
+                        <td className="py-2.5 text-gray-500 font-mono">${t.fee.toFixed(3)}</td>
                         <td className={`py-2.5 text-right font-mono font-bold ${t.closedPnl > 0 ? "text-emerald-400" : t.closedPnl < 0 ? "text-red-400" : "text-gray-500"}`}>
                           {t.closedPnl !== 0 ? `${t.closedPnl > 0 ? "+" : ""}$${t.closedPnl.toFixed(2)}` : "-"}
                         </td>
@@ -606,6 +742,31 @@ export default function AnalyticsPage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+
+            {/* Pagination Controls */}
+            {pageSize !== "ALL" && totalPages > 1 && (
+              <div className="flex items-center justify-between pt-4 border-t border-surface-border text-xs">
+                <div className="text-gray-400">
+                  Página <strong>{currentPage}</strong> de <strong>{totalPages}</strong> ({filteredTrades.length} operaciones totales)
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                    className="px-3 py-1.5 rounded-lg bg-background hover:bg-gray-800 border border-surface-border text-gray-300 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition-colors"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" /> Anterior
+                  </button>
+                  <button
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                    className="px-3 py-1.5 rounded-lg bg-background hover:bg-gray-800 border border-surface-border text-gray-300 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition-colors"
+                  >
+                    Siguiente <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             )}
           </div>
