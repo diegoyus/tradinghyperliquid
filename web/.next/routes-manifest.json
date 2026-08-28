@@ -66,6 +66,12 @@
       "namedRegex": "^/api/telegram/test(?:/)?$"
     },
     {
+      "page": "/api/telegram/webhook",
+      "regex": "^/api/telegram/webhook(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/telegram/webhook(?:/)?$"
+    },
+    {
       "page": "/auth",
       "regex": "^/auth(?:/)?$",
       "routeKeys": {},

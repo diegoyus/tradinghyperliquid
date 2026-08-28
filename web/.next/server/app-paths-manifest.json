@@ -5,6 +5,7 @@
   "/api/analyze-trader/route": "app/api/analyze-trader/route.js",
   "/api/cron/sync/route": "app/api/cron/sync/route.js",
   "/api/telegram/test/route": "app/api/telegram/test/route.js",
+  "/api/telegram/webhook/route": "app/api/telegram/webhook/route.js",
   "/auth/page": "app/auth/page.js",
   "/dashboard/page": "app/dashboard/page.js",
   "/page": "app/page.js",
