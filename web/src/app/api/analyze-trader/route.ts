@@ -74,10 +74,11 @@ function resolveCoinSymbol(rawCoin: string, symbolMap: Record<string, string>): 
   const clean = String(rawCoin).trim();
   if (symbolMap[clean]) return symbolMap[clean];
 
-  // Si empieza por @ (token Spot de Hyperliquid)
-  if (clean.startsWith("@")) {
+  // Si empieza por @ o # (token Spot de Hyperliquid)
+  if (clean.startsWith("@") || clean.startsWith("#")) {
     const spotIndex = clean.slice(1);
     if (symbolMap[clean]) return symbolMap[clean];
+    if (symbolMap[`@${spotIndex}`]) return symbolMap[`@${spotIndex}`];
     if (symbolMap[spotIndex]) return symbolMap[spotIndex];
     return `SPOT-${spotIndex}`;
   }
