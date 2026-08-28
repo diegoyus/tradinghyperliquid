@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Search, Award, TrendingUp, ShieldAlert, Activity, ArrowUpRight, ArrowDownRight, Plus, CheckCircle2, RefreshCw } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Search, Award, TrendingUp, Filter, ArrowUpRight, ArrowDownRight, Plus, CheckCircle2, RefreshCw, X } from "lucide-react";
 import { getStoredProfile, updateTradersConfig } from "@/lib/storage";
 
 const QUICK_TRADERS = [
@@ -18,6 +18,12 @@ export default function AnalyticsPage() {
   const [error, setError] = useState<string | null>(null);
   const [addedSuccess, setAddedSuccess] = useState(false);
 
+  // Estados de filtros
+  const [selectedCoin, setSelectedCoin] = useState<string>("ALL");
+  const [selectedResult, setSelectedResult] = useState<"ALL" | "WINS" | "LOSSES">("ALL");
+  const [selectedSide, setSelectedSide] = useState<"ALL" | "LONG" | "SHORT">("ALL");
+  const [searchTerm, setSearchTerm] = useState<string>("");
+
   const handleAnalyze = async (targetAddr?: string) => {
     const queryAddr = targetAddr || address;
     if (!queryAddr || !queryAddr.startsWith("0x") || queryAddr.length !== 42) {
@@ -28,6 +34,10 @@ export default function AnalyticsPage() {
     setLoading(true);
     setError(null);
     setData(null);
+    setSelectedCoin("ALL");
+    setSelectedResult("ALL");
+    setSelectedSide("ALL");
+    setSearchTerm("");
 
     try {
       const res = await fetch("/api/analyze-trader", {
@@ -71,13 +81,61 @@ export default function AnalyticsPage() {
     setTimeout(() => setAddedSuccess(false), 2500);
   };
 
+  // Lista única de monedas operadas
+  const availableCoins = useMemo(() => {
+    if (!data?.recentTrades) return [];
+    const coins = new Set<string>();
+    data.recentTrades.forEach((t: any) => {
+      if (t.coin) coins.add(t.coin);
+    });
+    return Array.from(coins);
+  }, [data]);
+
+  // Filtrado reactivo de operaciones
+  const filteredTrades = useMemo(() => {
+    if (!data?.recentTrades) return [];
+    return data.recentTrades.filter((t: any) => {
+      if (selectedCoin !== "ALL" && t.coin !== selectedCoin) return false;
+      if (selectedResult === "WINS" && t.closedPnl <= 0) return false;
+      if (selectedResult === "LOSSES" && t.closedPnl >= 0) return false;
+      if (selectedSide === "LONG" && !t.dir.toLowerCase().includes("long")) return false;
+      if (selectedSide === "SHORT" && !t.dir.toLowerCase().includes("short")) return false;
+      if (searchTerm) {
+        const query = searchTerm.toLowerCase();
+        const matchesCoin = t.coin?.toLowerCase().includes(query);
+        const matchesDir = t.dir?.toLowerCase().includes(query);
+        const matchesDate = t.time?.toLowerCase().includes(query);
+        if (!matchesCoin && !matchesDir && !matchesDate) return false;
+      }
+      return true;
+    });
+  }, [data, selectedCoin, selectedResult, selectedSide, searchTerm]);
+
+  // Métricas recalculadas según el filtro aplicado
+  const filteredStats = useMemo(() => {
+    if (!filteredTrades.length) return { count: 0, pnl: 0, winRate: 0, wins: 0, losses: 0 };
+    const closed = filteredTrades.filter((t: any) => t.closedPnl !== 0);
+    const wins = closed.filter((t: any) => t.closedPnl > 0).length;
+    const losses = closed.filter((t: any) => t.closedPnl < 0).length;
+    const totalPnl = closed.reduce((acc: number, t: any) => acc + t.closedPnl, 0);
+    const winRate = closed.length > 0 ? (wins / closed.length) * 100 : 0;
+    return {
+      count: filteredTrades.length,
+      closedCount: closed.length,
+      pnl: totalPnl,
+      winRate: winRate.toFixed(1),
+      wins,
+      losses,
+    };
+  }, [filteredTrades]);
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Header */}
       <div className="border-b border-surface-border pb-6">
         <h1 className="text-2xl sm:text-3xl font-extrabold text-white">Analizador de Carteras y Traders</h1>
         <p className="text-sm text-gray-400 mt-1">
-          Inspecciona en tiempo real el rendimiento, posiciones abiertas y estilo de cualquier dirección en Hyperliquid DEX.
+          Inspecciona en tiempo real el rendimiento de cualquier billetera con filtros avanzados por activos, lado y resultados.
         </p>
       </div>
 
@@ -253,8 +311,16 @@ export default function AnalyticsPage() {
               <h2 className="text-base font-bold text-white">Activos Más Operados</h2>
               <div className="space-y-3">
                 {data.topAssets.map((asset: any, idx: number) => (
-                  <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-background border border-surface-border">
-                    <span className="font-bold text-white text-xs">{asset.coin}</span>
+                  <div
+                    key={idx}
+                    onClick={() => setSelectedCoin(asset.coin)}
+                    className="flex items-center justify-between p-3 rounded-xl bg-background border border-surface-border hover:border-primary/50 cursor-pointer transition-colors"
+                    title="Haz clic para filtrar por esta moneda"
+                  >
+                    <span className="font-bold text-white text-xs flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                      {asset.coin}
+                    </span>
                     <span className="text-xs text-gray-400 font-mono">{asset.count} operaciones</span>
                   </div>
                 ))}
@@ -262,37 +328,152 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          {/* Recent Trades Table */}
-          <div className="p-6 rounded-2xl bg-surface border border-surface-border">
-            <h2 className="text-base font-bold text-white mb-4">Últimas Operaciones Ejecutadas</h2>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-surface-border text-gray-400">
-                    <th className="pb-2.5">Fecha</th>
-                    <th className="pb-2.5">Activo</th>
-                    <th className="pb-2.5">Acción</th>
-                    <th className="pb-2.5">Precio</th>
-                    <th className="pb-2.5">Cantidad</th>
-                    <th className="pb-2.5 text-right">PnL Cerrado</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-surface-border">
-                  {data.recentTrades.map((t: any, idx: number) => (
-                    <tr key={idx} className="hover:bg-gray-800/40 transition-colors">
-                      <td className="py-2.5 text-gray-400">{t.time}</td>
-                      <td className="py-2.5 font-bold text-white">{t.coin}</td>
-                      <td className="py-2.5 text-gray-300">{t.dir} ({t.side})</td>
-                      <td className="py-2.5 font-mono text-white">${t.px.toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
-                      <td className="py-2.5 text-gray-400">{t.sz}</td>
-                      <td className={`py-2.5 text-right font-mono font-bold ${t.closedPnl > 0 ? "text-emerald-400" : t.closedPnl < 0 ? "text-red-400" : "text-gray-500"}`}>
-                        {t.closedPnl !== 0 ? `${t.closedPnl > 0 ? "+" : ""}$${t.closedPnl.toFixed(2)}` : "-"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {/* Advanced Filter Toolbar */}
+          <div className="p-6 rounded-2xl bg-surface border border-surface-border space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-surface-border pb-4">
+              <div className="flex items-center gap-2">
+                <Filter className="w-5 h-5 text-primary" />
+                <h2 className="text-base font-bold text-white">Filtrar Operaciones del Trader</h2>
+              </div>
+              {(selectedCoin !== "ALL" || selectedResult !== "ALL" || selectedSide !== "ALL" || searchTerm) && (
+                <button
+                  onClick={() => {
+                    setSelectedCoin("ALL");
+                    setSelectedResult("ALL");
+                    setSelectedSide("ALL");
+                    setSearchTerm("");
+                  }}
+                  className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 self-start sm:self-auto"
+                >
+                  <X className="w-3.5 h-3.5" /> Limpiar Filtros
+                </button>
+              )}
             </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Filter by Coin / Asset */}
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-400 uppercase mb-1.5">Filtrar por Activo</label>
+                <select
+                  value={selectedCoin}
+                  onChange={(e) => setSelectedCoin(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-surface-border text-white text-xs focus:outline-none focus:border-primary cursor-pointer"
+                >
+                  <option value="ALL">Todas las Monedas</option>
+                  {availableCoins.map((coin) => (
+                    <option key={coin} value={coin}>{coin}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filter by Result (Wins / Losses) */}
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-400 uppercase mb-1.5">Resultado</label>
+                <select
+                  value={selectedResult}
+                  onChange={(e: any) => setSelectedResult(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-surface-border text-white text-xs focus:outline-none focus:border-primary cursor-pointer"
+                >
+                  <option value="ALL">Todos los Resultados</option>
+                  <option value="WINS">🟢 Solo Ganadores (Wins)</option>
+                  <option value="LOSSES">🔴 Solo Perdedores (Losses)</option>
+                </select>
+              </div>
+
+              {/* Filter by Side (Long / Short) */}
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-400 uppercase mb-1.5">Dirección</label>
+                <select
+                  value={selectedSide}
+                  onChange={(e: any) => setSelectedSide(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-surface-border text-white text-xs focus:outline-none focus:border-primary cursor-pointer"
+                >
+                  <option value="ALL">Todas las Direcciones</option>
+                  <option value="LONG">📈 Solo LONGs</option>
+                  <option value="SHORT">📉 Solo SHORTs</option>
+                </select>
+              </div>
+
+              {/* Quick Search Term */}
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-400 uppercase mb-1.5">Búsqueda rápida</label>
+                <input
+                  type="text"
+                  placeholder="Buscar moneda, fecha..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-surface-border text-white text-xs placeholder-gray-500 focus:outline-none focus:border-primary"
+                />
+              </div>
+            </div>
+
+            {/* Filtered Metrics Banner */}
+            <div className="p-3.5 rounded-xl bg-background/80 border border-surface-border flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">Mostrando:</span>
+                <span className="font-bold text-white">{filteredStats.count} operaciones</span>
+              </div>
+              <div className="flex items-center gap-4 font-mono">
+                <div>
+                  <span className="text-gray-400">Win Rate Filtrado: </span>
+                  <span className="font-bold text-emerald-400">{filteredStats.winRate}%</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">PnL Filtrado: </span>
+                  <span className={`font-bold ${filteredStats.pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                    {filteredStats.pnl >= 0 ? "+" : ""}${filteredStats.pnl.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Filtered Trades Table */}
+          <div className="p-6 rounded-2xl bg-surface border border-surface-border">
+            <h2 className="text-base font-bold text-white mb-4">Historial de Operaciones Filtradas ({filteredTrades.length})</h2>
+            
+            {filteredTrades.length === 0 ? (
+              <div className="py-12 text-center text-gray-500 text-xs">
+                No hay operaciones que coincidan con los filtros seleccionados.
+              </div>
+            ) : (
+              <div className="overflow-x-auto max-h-[500px] overflow-y-auto pr-1">
+                <table className="w-full text-left text-xs">
+                  <thead className="sticky top-0 bg-surface z-10">
+                    <tr className="border-b border-surface-border text-gray-400">
+                      <th className="pb-2.5">Fecha</th>
+                      <th className="pb-2.5">Activo</th>
+                      <th className="pb-2.5">Acción</th>
+                      <th className="pb-2.5">Precio</th>
+                      <th className="pb-2.5">Cantidad</th>
+                      <th className="pb-2.5 text-right">PnL Cerrado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-surface-border">
+                    {filteredTrades.map((t: any, idx: number) => (
+                      <tr key={idx} className="hover:bg-gray-800/40 transition-colors">
+                        <td className="py-2.5 text-gray-400">{t.time}</td>
+                        <td className="py-2.5 font-bold text-white">
+                          <span className="px-2 py-0.5 rounded bg-gray-800 text-gray-200 font-mono text-[11px]">
+                            {t.coin}
+                          </span>
+                        </td>
+                        <td className="py-2.5 text-gray-300">
+                          <span className={`px-2 py-0.5 rounded font-semibold text-[10px] ${t.dir?.toLowerCase().includes("long") ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>
+                            {t.dir} ({t.side})
+                          </span>
+                        </td>
+                        <td className="py-2.5 font-mono text-white">${t.px.toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                        <td className="py-2.5 text-gray-400">{t.sz}</td>
+                        <td className={`py-2.5 text-right font-mono font-bold ${t.closedPnl > 0 ? "text-emerald-400" : t.closedPnl < 0 ? "text-red-400" : "text-gray-500"}`}>
+                          {t.closedPnl !== 0 ? `${t.closedPnl > 0 ? "+" : ""}$${t.closedPnl.toFixed(2)}` : "-"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
