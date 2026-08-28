@@ -1,8 +1,7 @@
 """
 quant_deep_scanner.py
-Motor Interactivo de Auditoría Cuantitativa Profunda de Hyperliquid.
-Permite configurar el número de candidatos, operaciones por cuenta y saldo mínimo.
-Cruza el historial on-chain a Corto, Medio y Largo Plazo y actualiza la web con fecha y hora.
+Motor de Auditoría Cuantitativa Profunda de Hyperliquid.
+Con control de ritmo (Rate Limiting), pre-filtrado inteligente y reintentos automáticos.
 """
 
 import json
@@ -25,29 +24,55 @@ IGNORED_ADDRESSES = {
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Accept": "application/json",
+    "Content-Type": "application/json",
 }
 
+def query_info_api(payload, max_retries=3):
+    """Ejecuta una consulta a la API Info con reintentos y control de rate-limit."""
+    for attempt in range(max_retries):
+        try:
+            # Intentar con requests
+            resp = requests.post(INFO_URL, json=payload, headers=HEADERS, timeout=12)
+            if resp.status_code == 200:
+                return resp.json()
+            elif resp.status_code == 429:
+                time.sleep(2.0 + attempt * 1.5)
+                continue
+        except Exception:
+            pass
+
+        # Fallback con curl
+        try:
+            cmd = ["curl", "-s", "-X", "POST", INFO_URL, "-H", "Content-Type: application/json", "-d", json.dumps(payload)]
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            if proc.returncode == 0 and proc.stdout and not proc.stdout.startswith("rate limited"):
+                return json.loads(proc.stdout)
+            elif "rate limited" in proc.stdout:
+                time.sleep(2.0 + attempt * 1.5)
+        except Exception:
+            pass
+
+        time.sleep(1.0)
+    return None
+
 def fetch_leaderboard():
-    print("\n📡 Descargando leaderboard completo de Hyperliquid...")
-    # Usar curl si requests da timeout
+    print("\n📡 Descargando leaderboard completo de Hyperliquid (43.000+ cuentas)...")
     try:
-        resp = requests.get(LEADERBOARD_URL, headers=HEADERS, timeout=20)
-        if resp.status_code == 200:
-            data = resp.json()
+        proc = subprocess.run(["curl", "-s", LEADERBOARD_URL], capture_output=True, text=True, timeout=20)
+        if proc.returncode == 0 and proc.stdout:
+            data = json.loads(proc.stdout)
             rows = data.get("leaderboardRows", [])
             print(f"✅ Descargadas {len(rows)} cuentas del exchange.")
             return rows
     except Exception:
         pass
 
-    # Fallback con curl
     try:
-        proc = subprocess.run(["curl", "-s", LEADERBOARD_URL], capture_output=True, text=True, timeout=20)
-        if proc.returncode == 0 and proc.stdout:
-            data = json.loads(proc.stdout)
+        resp = requests.get(LEADERBOARD_URL, headers=HEADERS, timeout=20)
+        if resp.status_code == 200:
+            data = resp.json()
             rows = data.get("leaderboardRows", [])
-            print(f"✅ Descargadas {len(rows)} cuentas del exchange vía curl.")
+            print(f"✅ Descargadas {len(rows)} cuentas del exchange vía requests.")
             return rows
     except Exception as e:
         print(f"❌ Error descargando leaderboard: {e}")
@@ -60,12 +85,16 @@ def audit_trader_deep(address, max_fills=2000, min_balance=15000):
         return None
 
     try:
-        # 1. Consultar estado actual (saldo real en cuenta)
-        state_resp = requests.post(INFO_URL, json={"type": "userState", "user": addr}, headers=HEADERS, timeout=10)
-        if state_resp.status_code != 200:
+        # Pausa suave para evitar saturar la IP
+        time.sleep(0.1)
+
+        # 1. Consultar estado actual (clearinghouseState)
+        user_state = query_info_api({"type": "clearinghouseState", "user": addr})
+        if not user_state or not isinstance(user_state, dict):
             return None
-        user_state = state_resp.json()
+
         account_value = float(user_state.get("marginSummary", {}).get("accountValue", 0))
+        total_margin_used = float(user_state.get("marginSummary", {}).get("totalMarginUsed", 0))
 
         if account_value < min_balance:
             return None
@@ -73,27 +102,21 @@ def audit_trader_deep(address, max_fills=2000, min_balance=15000):
         # AUDITORÍA ANTI-TRAMPAS DE PÉRDIDAS FLOTANTES (Anti-Bagholding)
         asset_positions = user_state.get("assetPositions", [])
         total_unrealized_pnl = sum(float(p.get("position", {}).get("unrealizedPnl", 0)) for p in asset_positions)
-        total_margin_used = float(user_state.get("marginSummary", {}).get("totalMarginUsed", 0))
 
         # Descartar si el trader oculta pérdidas abiertas superiores al 8% de su cuenta
         if total_unrealized_pnl < 0 and abs(total_unrealized_pnl) > (account_value * 0.08):
             return None
 
-        # Descartar si el margen usado es > 50% (sobreapalancamiento peligroso)
-        if account_value > 0 and (total_margin_used / account_value) > 0.50:
+        # Descartar si el margen usado es > 45% (sobreapalancamiento peligroso)
+        if account_value > 0 and (total_margin_used / account_value) > 0.45:
             return None
 
         # 2. Consultar historial de órdenes (fills)
-        fills_resp = requests.post(INFO_URL, json={"type": "userFills", "user": addr}, headers=HEADERS, timeout=12)
-        if fills_resp.status_code != 200:
-            return None
-        fills = fills_resp.json()
+        fills = query_info_api({"type": "userFills", "user": addr})
         if not isinstance(fills, list) or len(fills) < 15:
             return None
 
-        # Limitar al número de fills configurado por el usuario
         fills = fills[:max_fills]
-
         now_ms = time.time() * 1000
         ms_7d = now_ms - (7 * 24 * 3600 * 1000)
         ms_30d = now_ms - (30 * 24 * 3600 * 1000)
@@ -129,8 +152,8 @@ def audit_trader_deep(address, max_fills=2000, min_balance=15000):
         profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (99.0 if gross_profit > 0 else 0)
         net_pnl = sum(closed_all)
 
-        # Descartar cuentas perdedoras o inconsistentes
-        if net_pnl <= 0 or profit_factor < 1.3 or win_rate < 65.0:
+        # Descartar cuentas perdedoras o con poco profit factor
+        if net_pnl <= 0 or profit_factor < 1.3 or win_rate < 60.0:
             return None
 
         pnl_30d = sum(closed_30d)
@@ -158,7 +181,7 @@ def audit_trader_deep(address, max_fills=2000, min_balance=15000):
         if max_dd_pct > 25.0:
             return None
 
-        # PUNTUACIÓN CUANTITATIVA ESTRICTA
+        # Puntuación Cuantitativa
         score = 5.0
         if win_rate >= 90: score += 2.2
         elif win_rate >= 80: score += 1.6
@@ -177,8 +200,6 @@ def audit_trader_deep(address, max_fills=2000, min_balance=15000):
 
         score = round(min(max(score, 1.0), 9.9), 1)
         top_assets = [k for k, _ in sorted(coin_counts.items(), key=lambda x: x[1], reverse=True)[:3]]
-
-        # Asignar un alias/nombre descriptivo
         alias = f"Trader {addr[:6]} ({top_assets[0] if top_assets else 'Crypto'})"
 
         return {
@@ -209,12 +230,11 @@ def main():
     print("  🧠 MOTOR CUANTITATIVO DE AUDITORÍA ON-CHAIN DE HYPERLIQUID")
     print("=" * 65)
 
-    # Configuración interactiva o por defecto
     try:
-        cand_input = input("\n👉 ¿Cuántos candidatos del leaderboard quieres analizar? [Por defecto: 100]: ").strip()
-        max_candidates = int(cand_input) if cand_input else 100
+        cand_input = input("\n👉 ¿Cuántos candidatos pre-filtrados quieres auditar a fondo? [Por defecto: 50]: ").strip()
+        max_candidates = int(cand_input) if cand_input else 50
     except ValueError:
-        max_candidates = 100
+        max_candidates = 50
 
     try:
         fills_input = input("👉 ¿Cuántas operaciones (fills) históricas por trader analizar? [Por defecto: 2000]: ").strip()
@@ -228,8 +248,8 @@ def main():
     except ValueError:
         min_balance = 15000.0
 
-    print(f"\n⚙️ Configuración seleccionada:")
-    print(f"   • Candidatos a evaluar: {max_candidates}")
+    print(f"\n⚙️ Configuración:")
+    print(f"   • Candidatos a auditar a fondo: {max_candidates}")
     print(f"   • Operaciones por trader: hasta {max_fills}")
     print(f"   • Saldo mínimo: ${min_balance:,.0f} USD")
 
@@ -238,20 +258,37 @@ def main():
         print("❌ No se pudo obtener el leaderboard.")
         return
 
+    # PRE-FILTRADO INTELIGENTE EN MEMORIA SOBRE LOS 43.000 TRADERS
+    print(f"🔎 Filtrando los {len(rows)} traders para seleccionar los {max_candidates} mejores candidatos...")
     candidates = []
     for r in rows:
         addr = r.get("ethAddress")
         val = float(r.get("accountValue", 0))
-        if addr and val >= min_balance and addr.lower() not in IGNORED_ADDRESSES:
+        if not addr or addr.lower() in IGNORED_ADDRESSES:
+            continue
+
+        if val < min_balance or val > 50000000:
+            continue
+
+        perf_map = dict(r.get("windowPerformances", []))
+        m_perf = perf_map.get("month", {})
+        m_pnl = float(m_perf.get("pnl", 0))
+        m_roi = float(m_perf.get("roi", 0))
+
+        # Solo candidatos que ya demuestran rentabilidad positiva en el exchange
+        if m_pnl > 0 and m_roi > 0:
             candidates.append(addr)
             if len(candidates) >= max_candidates:
                 break
 
-    print(f"\n🔍 Auditando a fondo {len(candidates)} carteras seleccionadas...")
+    print(f"✅ Seleccionados {len(candidates)} candidatos de alta probabilidad para auditoría on-chain profunda.")
+    print(f"⏳ Analizando órdenes históricas y comprobando pérdidas flotantes...")
+
     start_time = time.time()
     verified = []
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    # Usar 4 workers con ritmo controlado para evitar saturación de API
+    with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {executor.submit(audit_trader_deep, addr, max_fills, min_balance): addr for addr in candidates}
         completed = 0
         for future in as_completed(futures):
@@ -264,13 +301,28 @@ def main():
                 if completed % 10 == 0:
                     print(f"  ⏳ Progreso: {completed}/{len(candidates)} cuentas auditadas...")
 
-    # Ordenar de mejor a peor
-    verified.sort(key=lambda x: (float(x["score"]), x["profitFactor"], x["netPnlTotal"]), reverse=True)
+    # Cargar base de datos existente para fusionar y no perder traders ya verificados
+    existing_traders = []
+    try:
+        if os.path.exists(OUTPUT_FILE):
+            with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
+                old_data = json.load(f)
+                existing_traders = old_data.get("traders", []) if isinstance(old_data, dict) else old_data
+    except Exception:
+        pass
+
+    # Fusionar sin duplicados
+    seen_addrs = {t["address"].lower() for t in verified}
+    for old_t in existing_traders:
+        if old_t["address"].lower() not in seen_addrs and float(old_t.get("score", 0)) >= 8.0:
+            verified.append(old_t)
+            seen_addrs.add(old_t["address"].lower())
+
+    verified.sort(key=lambda x: (float(x.get("score", 0)), x.get("profitFactor", 0), x.get("netPnlTotal", 0)), reverse=True)
 
     elapsed = time.time() - start_time
     timestamp_now = time.strftime("%d/%m/%Y %H:%M:%S")
 
-    # Guardar archivo enriquecido con metadatos
     result_dataset = {
         "lastAudited": timestamp_now,
         "totalScanned": len(candidates),
@@ -291,18 +343,15 @@ def main():
         json.dump(result_dataset, f, indent=2)
 
     print(f"\n🏆 ¡Auditoría Finalizada en {elapsed:.1f}s!")
-    print(f"📊 {len(verified)} traders de élite superaron los filtros cuantitativos.")
+    print(f"📊 {len(verified)} traders de élite verificados en la base de datos.")
     print(f"🕒 Fecha y Hora registrada: {timestamp_now}")
     print(f"💾 Guardado en: {OUTPUT_FILE}")
 
-    # Preguntar si desea sincronizar a producción
+    # Sincronización
     push_input = input("\n🚀 ¿Quieres sincronizar y publicar este nuevo ranking en tu web en producción? (S/n): ").strip().lower()
     if push_input != "n":
         print("📦 Empaquetando y subiendo a Vercel y GitHub...")
-        subprocess.run(["DEVELOPER_DIR=/Library/Developer/CommandLineTools", "git", "add", "web/src/data/verified_traders.json"], shell=True)
-        subprocess.run(["DEVELOPER_DIR=/Library/Developer/CommandLineTools", "git", "commit", "-m", f"Update verified quant traders ranking {timestamp_now}"], shell=True)
-        subprocess.run(["DEVELOPER_DIR=/Library/Developer/CommandLineTools", "git", "push", "origin", "main"], shell=True)
-        subprocess.run(["cd web && npx vercel deploy --prebuilt --prod --yes"], shell=True)
+        subprocess.run(["DEVELOPER_DIR=/Library/Developer/CommandLineTools git add web/src/data/verified_traders.json && DEVELOPER_DIR=/Library/Developer/CommandLineTools git commit -m 'Update verified quant ranking' && DEVELOPER_DIR=/Library/Developer/CommandLineTools git push origin main && cd web && npx vercel build --prod --yes && npx vercel deploy --prebuilt --prod --yes"], shell=True)
         print("🎉 ¡Ranking actualizado en tu web en vivo con la nueva fecha y hora!")
 
 if __name__ == "__main__":
