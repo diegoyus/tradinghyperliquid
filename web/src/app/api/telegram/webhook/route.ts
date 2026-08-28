@@ -122,10 +122,10 @@ No necesitas buscar direcciones manualmente; puedo escanear todo el exchange por
     if (command === "/saldo" || command === "/balance") {
       const msg = `💰 <b>Resumen de tu Cartera Virtual:</b>
 
-• <b>Saldo Actual:</b> $14,850.25 USD
+• <b>Saldo Actual:</b> $10,000.00 USD
 • <b>Capital Inicial:</b> $10,000.00 USD
-• <b>PnL Neto Realizado:</b> 🟢 +$4,850.25 USD (+48.50%)
-• <b>Tasa de Acierto:</b> 89.3% (25W / 3L)
+• <b>PnL Neto Realizado:</b> $0.00 USD (0.00%)
+• <b>Tasa de Acierto:</b> 100% (0 operaciones)
 • <b>Traders Activos:</b> 4 en tu cesta
 • <b>Estado:</b> 🟢 <b>24/7 Cloud Worker Activo</b>
 

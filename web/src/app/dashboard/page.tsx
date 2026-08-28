@@ -33,7 +33,7 @@ export default function DashboardPage() {
       const totalPnl = traderTrades.reduce((acc, th) => acc + (th.pnl || 0), 0);
       const allocatedCapital = (profile.cash_balance * (t.allocation_pct / 100));
       const roiPct = allocatedCapital > 0 ? ((totalPnl / allocatedCapital) * 100).toFixed(1) : "0.0";
-      const winRate = totalTrades > 0 ? ((wins / totalTrades) * 100).toFixed(1) : (t.score?.includes("9.") ? "94.0" : "88.0");
+      const winRate = totalTrades > 0 ? ((wins / totalTrades) * 100).toFixed(1) : "100.0";
 
       // Buscar posiciones abiertas de este trader
       const activePositions = Object.values(profile.positions || {}).filter(
@@ -43,11 +43,11 @@ export default function DashboardPage() {
       return {
         ...t,
         allocatedCapital,
-        totalTrades: totalTrades || (t.name.includes("Francotirador") ? 14 : t.name.includes("Sticky") ? 9 : 5),
-        wins: wins || (t.name.includes("Francotirador") ? 13 : t.name.includes("Sticky") ? 8 : 4),
-        losses: losses || 1,
-        totalPnl: totalPnl || (t.name.includes("Francotirador") ? 2340.5 : t.name.includes("Sticky") ? 1680.0 : 829.75),
-        roiPct: roiPct !== "0.0" ? roiPct : (t.name.includes("Francotirador") ? "+39.4%" : t.name.includes("Sticky") ? "+28.2%" : "+14.1%"),
+        totalTrades,
+        wins,
+        losses,
+        totalPnl,
+        roiPct: totalPnl !== 0 ? (totalPnl > 0 ? `+${roiPct}%` : `${roiPct}%`) : "+0.0%",
         winRate,
         activePositions,
       };
@@ -86,6 +86,18 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              if (confirm("¿Quieres reiniciar tu cartera a los $10,000 USD iniciales y limpiar el historial?")) {
+                const fresh = resetProfile();
+                setProfile({ ...fresh });
+              }
+            }}
+            className="px-3.5 py-1.5 rounded-lg bg-surface hover:bg-gray-800 border border-surface-border text-xs text-gray-400 hover:text-white flex items-center gap-1.5 transition-colors"
+            title="Reiniciar saldo a $10,000 USD"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-gray-400" /> Reiniciar ($10,000)
+          </button>
           <Link
             href="/traders"
             className="px-3.5 py-1.5 rounded-lg bg-surface hover:bg-gray-800 border border-surface-border text-xs text-gray-300 flex items-center gap-1.5 transition-colors"

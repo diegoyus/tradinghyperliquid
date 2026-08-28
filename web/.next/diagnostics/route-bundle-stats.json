@@ -1,11 +1,11 @@
 [
   {
     "route": "/dashboard",
-    "firstLoadUncompressedJsBytes": 878082,
+    "firstLoadUncompressedJsBytes": 877482,
     "firstLoadChunkPaths": [
       ".next/static/chunks/1v28weday-aas.js",
-      ".next/static/chunks/0iqake_sbzrpl.js",
-      ".next/static/chunks/0ll28o257-xir.js",
+      ".next/static/chunks/1vg-ioqc1krad.js",
+      ".next/static/chunks/2bq1xzjbh0msv.js",
       ".next/static/chunks/310vm2bl3xxpt.js",
       ".next/static/chunks/2mmpezlrfmbu5.js",
       ".next/static/chunks/3byuobrkyz9bj.js",
@@ -15,10 +15,10 @@
   },
   {
     "route": "/analytics",
-    "firstLoadUncompressedJsBytes": 493088,
+    "firstLoadUncompressedJsBytes": 492335,
     "firstLoadChunkPaths": [
       ".next/static/chunks/1v28weday-aas.js",
-      ".next/static/chunks/2eaz_b5i6ews3.js",
+      ".next/static/chunks/2jho1q6xcj-j8.js",
       ".next/static/chunks/310vm2bl3xxpt.js",
       ".next/static/chunks/2mmpezlrfmbu5.js",
       ".next/static/chunks/3byuobrkyz9bj.js",
@@ -28,10 +28,10 @@
   },
   {
     "route": "/traders",
-    "firstLoadUncompressedJsBytes": 488672,
+    "firstLoadUncompressedJsBytes": 487919,
     "firstLoadChunkPaths": [
       ".next/static/chunks/1v28weday-aas.js",
-      ".next/static/chunks/2rseayd64yjdz.js",
+      ".next/static/chunks/3f3qhc6efht7f.js",
       ".next/static/chunks/310vm2bl3xxpt.js",
       ".next/static/chunks/2mmpezlrfmbu5.js",
       ".next/static/chunks/3byuobrkyz9bj.js",
@@ -41,10 +41,10 @@
   },
   {
     "route": "/settings",
-    "firstLoadUncompressedJsBytes": 476708,
+    "firstLoadUncompressedJsBytes": 475955,
     "firstLoadChunkPaths": [
       ".next/static/chunks/1v28weday-aas.js",
-      ".next/static/chunks/3o7oteczl8lxy.js",
+      ".next/static/chunks/1cjomz0htray4.js",
       ".next/static/chunks/310vm2bl3xxpt.js",
       ".next/static/chunks/2mmpezlrfmbu5.js",
       ".next/static/chunks/3byuobrkyz9bj.js",
@@ -54,10 +54,10 @@
   },
   {
     "route": "/auth",
-    "firstLoadUncompressedJsBytes": 475337,
+    "firstLoadUncompressedJsBytes": 474584,
     "firstLoadChunkPaths": [
       ".next/static/chunks/1v28weday-aas.js",
-      ".next/static/chunks/2aw15-4klqm4m.js",
+      ".next/static/chunks/2aaqe82hs1hu5.js",
       ".next/static/chunks/310vm2bl3xxpt.js",
       ".next/static/chunks/2mmpezlrfmbu5.js",
       ".next/static/chunks/3byuobrkyz9bj.js",

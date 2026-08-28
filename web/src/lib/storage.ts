@@ -55,72 +55,24 @@ const INITIAL_PROFILE: UserProfile = {
   name: "Usuario Inversor",
   telegram_chat_id: "",
   initial_balance: 10000.0,
-  cash_balance: 14850.25,
-  realized_pnl: 4850.25,
-  peak_balance: 15200.0,
+  cash_balance: 10000.0,
+  realized_pnl: 0.0,
+  peak_balance: 10000.0,
   traders: DEFAULT_TRADERS,
   global_risk: DEFAULT_GLOBAL_RISK,
-  positions: {
-    BTC_0x337a: {
-      trader_name: "El Francotirador",
-      trader_addr: "0x337afda118de433f5a8c8ad6d6ef48b76d027a06",
-      coin: "BTC",
-      size: 0.15,
-      entry_px: 64200.0,
-      side: "LONG",
-      leverage: 10,
-      open_time: "Hoy 14:32",
-    },
-    ETH_0x613e: {
-      trader_name: "Sticky",
-      trader_addr: "0x613ead0ea5af374af0ccfc117ef116a8e8d133fe",
-      coin: "ETH",
-      size: 1.8,
-      entry_px: 2480.5,
-      side: "LONG",
-      leverage: 5,
-      open_time: "Hoy 16:05",
-    },
-  },
-  trade_history: [
-    {
-      time: "Hoy 18:20",
-      trader: "El Francotirador",
-      coin: "XRP",
-      dir: "Close Long",
-      px: 0.62,
-      sz: 5000,
-      pnl: 340.5,
-      balance_after: 14850.25,
-    },
-    {
-      time: "Hoy 15:10",
-      trader: "Sticky",
-      coin: "ZEC",
-      dir: "Close Long",
-      px: 585.0,
-      sz: 15,
-      pnl: 680.0,
-      balance_after: 14509.75,
-    },
-  ],
+  positions: {},
+  trade_history: [],
   equity_history: [
-    { time: "Día 1", balance: 10000.0 },
-    { time: "Día 3", balance: 10450.0 },
-    { time: "Día 7", balance: 11200.0 },
-    { time: "Día 12", balance: 12150.0 },
-    { time: "Día 18", balance: 13000.0 },
-    { time: "Día 24", balance: 14100.0 },
-    { time: "Hoy", balance: 14850.25 },
+    { time: "Inicio", balance: 10000.0 },
   ],
   stats: {
-    total_trades: 28,
-    winning_trades: 25,
-    losing_trades: 3,
+    total_trades: 0,
+    winning_trades: 0,
+    losing_trades: 0,
   },
 };
 
-const STORAGE_KEY = "hyperliquid_copy_user_profile";
+const STORAGE_KEY = "hyperliquid_copy_user_profile_v2";
 
 export function getStoredProfile(): UserProfile {
   if (typeof window === "undefined") return INITIAL_PROFILE;
@@ -134,7 +86,6 @@ export function getStoredProfile(): UserProfile {
     if (!parsed.global_risk) {
       parsed.global_risk = DEFAULT_GLOBAL_RISK;
     }
-    // Asegurar que los traders tengan todos los campos de riesgo
     parsed.traders = (parsed.traders || []).map((t: any) => ({
       ...t,
       stop_loss_pct: t.stop_loss_pct ?? 5.0,
@@ -178,6 +129,7 @@ export function updateTelegramChatId(chatId: string): UserProfile {
 export function resetProfile(): UserProfile {
   const fresh: UserProfile = {
     ...INITIAL_PROFILE,
+    initial_balance: 10000.0,
     cash_balance: 10000.0,
     realized_pnl: 0.0,
     peak_balance: 10000.0,
