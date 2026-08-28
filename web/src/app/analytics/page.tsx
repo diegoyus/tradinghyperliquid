@@ -447,6 +447,34 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
+          {/* Risk Health & Anti-Bagholding Audit Banner */}
+          <div className={`p-4 rounded-2xl border flex items-start gap-3.5 ${
+            data.riskHealthStatus === "DANGEROUS_BAGHOLDING"
+              ? "bg-red-500/10 border-red-500/40 text-red-300"
+              : data.riskHealthStatus === "MODERATE_WARNING"
+              ? "bg-yellow-500/10 border-yellow-500/40 text-yellow-300"
+              : "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+          }`}>
+            <div className="p-2 rounded-xl bg-black/30 text-lg">
+              {data.riskHealthStatus === "DANGEROUS_BAGHOLDING" ? "🚩" : data.riskHealthStatus === "MODERATE_WARNING" ? "⚠️" : "🛡️"}
+            </div>
+            <div className="flex-1 text-xs space-y-1.5">
+              <div className="font-bold text-sm text-white flex items-center justify-between">
+                <span>Auditoría Anti-Pérdidas Flotantes & Riesgo en Tiempo Real</span>
+                <span className="font-mono text-xs px-2.5 py-0.5 rounded bg-black/40 border border-white/10">
+                  Margen Usado: {data.marginUtilizationPct}%
+                </span>
+              </div>
+              <p className="text-gray-300 leading-relaxed">{data.riskHealthMessage}</p>
+              <div className="flex flex-wrap gap-4 pt-1 text-[11px] text-gray-400 font-mono border-t border-white/10">
+                <span>• Ganancia Media: <strong className="text-emerald-400">+${data.avgWin}</strong></span>
+                <span>• Pérdida Media: <strong className="text-red-400">-${data.avgLoss}</strong></span>
+                <span>• Ratio Riesgo/Beneficio: <strong className="text-white">{data.winLossRatio}x</strong></span>
+                <span>• PnL Flotante Abierto: <strong className={data.totalUnrealizedPnl >= 0 ? "text-emerald-400" : "text-red-400"}>${data.totalUnrealizedPnl?.toFixed(2)} ({data.floatingLossPct}%)</strong></span>
+              </div>
+            </div>
+          </div>
+
           {/* Metric Cards Grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="p-5 rounded-2xl bg-surface border border-surface-border">

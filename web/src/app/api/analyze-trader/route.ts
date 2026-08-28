@@ -193,6 +193,29 @@ export async function POST(req: Request) {
     const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? 99.0 : 0;
     const netPnlTotal = closedTrades.reduce((acc, val) => acc + val, 0);
 
+    const avgWin = wins.length > 0 ? grossProfit / wins.length : 0;
+    const avgLoss = losses.length > 0 ? grossLoss / losses.length : 0;
+    const winLossRatio = avgLoss > 0 ? avgWin / avgLoss : 99.0;
+
+    // 3. AUDITORÍA ANTI-TRAMPAS DE PÉRDIDAS FLOTANTES (Anti-Bagholding & Margin Health)
+    const totalUnrealizedPnl = openPositions.reduce((acc: number, p: any) => acc + (p.unrealizedPnl || 0), 0);
+    const floatingLossPct = accountValue > 0 ? (totalUnrealizedPnl / accountValue) * 100 : 0;
+    const marginUtilizationPct = accountValue > 0 ? (totalMarginUsed / accountValue) * 100 : 0;
+
+    let riskHealthStatus = "CLEAN"; // CLEAN, MODERATE_WARNING, DANGEROUS_BAGHOLDING
+    let riskHealthMessage = "Gestión de riesgo sólida: Sin pérdidas flotantes ocultas ni sobreapalancamiento.";
+
+    if (totalUnrealizedPnl < 0 && Math.abs(floatingLossPct) >= 15.0) {
+      riskHealthStatus = "DANGEROUS_BAGHOLDING";
+      riskHealthMessage = `🚩 ALERTA DE RIESGO: El trader tiene -$${Math.abs(totalUnrealizedPnl).toLocaleString("en-US", { maximumFractionDigits: 0 })} USD (${Math.abs(floatingLossPct).toFixed(1)}% de su cuenta) en pérdidas abiertas sin cerrar. Típico de estrategias Martingala/Bagholding.`;
+    } else if (totalUnrealizedPnl < 0 && Math.abs(floatingLossPct) >= 5.0) {
+      riskHealthStatus = "MODERATE_WARNING";
+      riskHealthMessage = `⚠️ ATENCIÓN: Mantiene pérdidas flotantes del ${Math.abs(floatingLossPct).toFixed(1)}% en posiciones abiertas.`;
+    } else if (marginUtilizationPct > 45.0) {
+      riskHealthStatus = "MODERATE_WARNING";
+      riskHealthMessage = `⚠️ ATENCIÓN: Alta utilización de margen (${marginUtilizationPct.toFixed(1)}% de la cuenta en riesgo).`;
+    }
+
     // Curva de PnL acumulada histórica del trader
     let runningPnl = 0;
     const pnlCurve: { tradeIndex: number; time: string; pnl: number }[] = [];
@@ -220,18 +243,31 @@ export async function POST(req: Request) {
       if (dd > maxDrawdownPct) maxDrawdownPct = dd;
     }
 
-    // Calcular Puntuación Algorítmica (0.0 a 10.0)
+    // Calcular Puntuación Algorítmica Estricta (0.0 a 10.0)
     let score = 5.0;
-    if (winRate >= 90) score += 2.5;
-    else if (winRate >= 75) score += 1.8;
-    else if (winRate >= 60) score += 1.0;
+    if (winRate >= 90) score += 2.2;
+    else if (winRate >= 75) score += 1.5;
+    else if (winRate >= 60) score += 0.8;
 
-    if (maxDrawdownPct <= 5) score += 1.5;
-    else if (maxDrawdownPct <= 15) score += 0.8;
+    if (maxDrawdownPct <= 3) score += 1.5;
+    else if (maxDrawdownPct <= 10) score += 0.8;
     else score -= 1.5;
 
-    if (profitFactor >= 5) score += 1.0;
+    if (profitFactor >= 4) score += 1.0;
     else if (profitFactor >= 2) score += 0.5;
+    else if (profitFactor < 1.3) score -= 1.5;
+
+    // Penalizaciones Anti-Pérdidas Flotantes
+    if (riskHealthStatus === "DANGEROUS_BAGHOLDING") {
+      score -= 3.5;
+    } else if (riskHealthStatus === "MODERATE_WARNING") {
+      score -= 1.2;
+    }
+
+    if (avgLoss > avgWin * 5 && losses.length > 0) {
+      // Si cuando pierde, pierde 5 veces más que cuando gana (ratio asimétrico peligroso)
+      score -= 1.0;
+    }
 
     if (accountValue >= 50000) score += 0.5;
     score = Math.min(Math.max(score, 1.0), 9.9);
@@ -247,9 +283,17 @@ export async function POST(req: Request) {
       address: cleanAddress,
       accountValue,
       totalMarginUsed,
+      marginUtilizationPct: marginUtilizationPct.toFixed(1),
+      totalUnrealizedPnl,
+      floatingLossPct: floatingLossPct.toFixed(1),
+      riskHealthStatus,
+      riskHealthMessage,
       score: score.toFixed(1),
       winRate: winRate.toFixed(1),
       profitFactor: profitFactor.toFixed(2),
+      avgWin: avgWin.toFixed(2),
+      avgLoss: avgLoss.toFixed(2),
+      winLossRatio: winLossRatio.toFixed(2),
       maxDrawdownPct: maxDrawdownPct.toFixed(2),
       netPnlTotal,
       totalFills: rawFills.length,

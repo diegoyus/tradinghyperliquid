@@ -70,6 +70,19 @@ def audit_trader_deep(address, max_fills=2000, min_balance=15000):
         if account_value < min_balance:
             return None
 
+        # AUDITORÍA ANTI-TRAMPAS DE PÉRDIDAS FLOTANTES (Anti-Bagholding)
+        asset_positions = user_state.get("assetPositions", [])
+        total_unrealized_pnl = sum(float(p.get("position", {}).get("unrealizedPnl", 0)) for p in asset_positions)
+        total_margin_used = float(user_state.get("marginSummary", {}).get("totalMarginUsed", 0))
+
+        # Descartar si el trader oculta pérdidas abiertas superiores al 8% de su cuenta
+        if total_unrealized_pnl < 0 and abs(total_unrealized_pnl) > (account_value * 0.08):
+            return None
+
+        # Descartar si el margen usado es > 50% (sobreapalancamiento peligroso)
+        if account_value > 0 and (total_margin_used / account_value) > 0.50:
+            return None
+
         # 2. Consultar historial de órdenes (fills)
         fills_resp = requests.post(INFO_URL, json={"type": "userFills", "user": addr}, headers=HEADERS, timeout=12)
         if fills_resp.status_code != 200:

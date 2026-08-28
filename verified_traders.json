@@ -1,1 +1,11 @@
-[]
+{
+  "lastAudited": "29/08/2026 01:42:43",
+  "totalScanned": 500,
+  "totalVerified": 0,
+  "config": {
+    "maxCandidates": 500,
+    "maxFillsPerTrader": 5000,
+    "minBalanceUSD": 15000.0
+  },
+  "traders": []
+}
