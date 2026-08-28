@@ -1,0 +1,59 @@
+{
+  "demo_user": {
+    "id": "demo_user",
+    "email": "demo@copytrading.com",
+    "name": "Usuario Demo",
+    "telegram_chat_id": "",
+    "initial_balance": 10000.0,
+    "cash_balance": 10000.0,
+    "realized_pnl": 0.0,
+    "peak_balance": 10000.0,
+    "traders": [
+      {
+        "name": "El Francotirador",
+        "score": "9.8/10",
+        "address": "0x337afda118de433f5a8c8ad6d6ef48b76d027a06",
+        "allocation_pct": 40.0,
+        "risk_multiplier": 1.0,
+        "max_leverage": 10
+      },
+      {
+        "name": "Sticky",
+        "score": "9.3/10",
+        "address": "0x613ead0ea5af374af0ccfc117ef116a8e8d133fe",
+        "allocation_pct": 30.0,
+        "risk_multiplier": 1.0,
+        "max_leverage": 10
+      },
+      {
+        "name": "Macro / Acciones",
+        "score": "8.9/10",
+        "address": "0xb6db1b4dc6244f86e482d834739d949d799e4da5",
+        "allocation_pct": 20.0,
+        "risk_multiplier": 1.0,
+        "max_leverage": 10
+      },
+      {
+        "name": "Especialista SOL",
+        "score": "8.5/10",
+        "address": "0xab7fb756330e3983e676f44c03dabda9120aa273",
+        "allocation_pct": 10.0,
+        "risk_multiplier": 1.0,
+        "max_leverage": 10
+      }
+    ],
+    "positions": {},
+    "trade_history": [],
+    "equity_history": [
+      {
+        "time": "Inicio",
+        "balance": 10000.0
+      }
+    ],
+    "stats": {
+      "total_trades": 0,
+      "winning_trades": 0,
+      "losing_trades": 0
+    }
+  }
+}

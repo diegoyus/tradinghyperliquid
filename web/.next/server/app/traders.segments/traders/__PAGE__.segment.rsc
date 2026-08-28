@@ -1,0 +1,26 @@
+1:"$Sreact.fragment"
+2:I[47257,["/_next/static/chunks/0qjvl3yvihqgm.js"],"ClientPageRoot"]
+3:I[68824,["/_next/static/chunks/0qjvl3yvihqgm.js","/_next/static/chunks/32rtb0v5sraui.js"],"default"]
+6:I[97367,["/_next/static/chunks/0qjvl3yvihqgm.js"],"OutletBoundary"]
+7:"$Sreact.suspense"
+b:I[97367,["/_next/static/chunks/0qjvl3yvihqgm.js"],"ViewportBoundary"]
+c:I[97367,["/_next/static/chunks/0qjvl3yvihqgm.js"],"MetadataBoundary"]
+e:I[39756,["/_next/static/chunks/0qjvl3yvihqgm.js"],"default"]
+f:I[37457,["/_next/static/chunks/0qjvl3yvihqgm.js"],"default"]
+12:I[45678,["/_next/static/chunks/0qjvl3yvihqgm.js"],"default"]
+:HL["/_next/static/chunks/1sprfi1og8rf_.css","style"]
+a:X
+11:X
+11:C
+0:{"buildId":"fAxACCkSsFGobfwEmPaVk","data":[{"rsc":["$","$1","c",{"children":[["$","$L2",null,{"Component":"$3","serverProvidedParams":{"searchParams":{},"params":{},"promises":["$@4","$@5"]}}],[["$","script","script-0",{"src":"/_next/static/chunks/32rtb0v5sraui.js","async":true}]],["$","$L6",null,{"children":["$","$7",null,{"name":"Next.MetadataOutlet","children":"$@8"}]}]]}],"isPartial":"$@9","staleTime":"$a","varyParams":null},{"rsc":["$","$1","h",{"children":[null,["$","$Lb",null,{"children":[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]}],["$","div",null,{"hidden":true,"children":["$","$Lc",null,{"children":["$","$7",null,{"name":"Next.Metadata","children":[["$","title","0",{"children":"HyperCopy | Plataforma de Copy Trading en Hyperliquid"}],["$","meta","1",{"name":"description","content":"Copia automáticamente a los mejores traders de Hyperliquid DEX con carteras simuladas y alertas en tiempo real por Telegram."}]]}]}]}],null]}],"isPartial":"$@d","staleTime":"$a","varyParams":null},{"rsc":["$","$1","c",{"children":[null,["$","$Le",null,{"parallelRouterKey":"children","template":["$","$Lf",null,{}]}]]}],"isPartial":"$@10","staleTime":"$a","varyParams":"$11"},{"rsc":["$","$1","c",{"children":[[["$","link","0",{"rel":"stylesheet","href":"/_next/static/chunks/1sprfi1og8rf_.css","precedence":"next"}],["$","script","script-0",{"src":"/_next/static/chunks/0qjvl3yvihqgm.js","async":true}]],["$","html",null,{"lang":"es","className":"dark","children":["$","body",null,{"className":"min-h-screen bg-background text-gray-100 flex flex-col","children":[["$","$L12",null,{}],["$","main",null,{"className":"flex-1","children":["$","$Le",null,{"parallelRouterKey":"children","template":["$","$Lf",null,{}],"notFound":[[["$","title",null,{"children":"404: This page could not be found."}],["$","div",null,{"style":{"fontFamily":"system-ui,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif,\"Apple Color Emoji\",\"Segoe UI Emoji\"","height":"100vh","textAlign":"center","display":"flex","flexDirection":"column","alignItems":"center","justifyContent":"center"},"children":["$","div",null,{"children":[["$","style",null,{"dangerouslySetInnerHTML":{"__html":"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}"}}],["$","h1",null,{"className":"next-error-h1","style":{"display":"inline-block","margin":"0 20px 0 0","padding":"0 23px 0 0","fontSize":24,"fontWeight":500,"verticalAlign":"top","lineHeight":"49px"},"children":404}],["$","div",null,{"style":{"display":"inline-block"},"children":["$","h2",null,{"style":{"fontSize":14,"fontWeight":400,"lineHeight":"49px","margin":0},"children":"This page could not be found."}]}]]}]}]],[]]}]}]]}]}]]}],"isPartial":"$@13","staleTime":"$a","varyParams":null}],"isUpgradeableISRFallback":false,"a":"$@14","rootVaryParams":null,"needsRuntimeRequest":"$@15"}
+4:{}
+5:"$0:data:0:rsc:props:children:0:props:serverProvidedParams:params"
+8:null
+a:300
+15:true
+a:C
+14:0
+d:"$undefined"
+10:"$undefined"
+13:"$undefined"
+9:"$undefined"

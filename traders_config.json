@@ -1,0 +1,16 @@
+[
+  {
+    "name": "Sticky (Top ROI)",
+    "address": "0x613ead0ea5af374af0ccfc117ef116a8e8d133fe",
+    "allocation_pct": 50.0,
+    "risk_multiplier": 1.0,
+    "max_leverage": 10
+  },
+  {
+    "name": "ASASAZX (Consistente)",
+    "address": "0x8fbb98ad84e848a54d39c6fcb875be919bbbd714",
+    "allocation_pct": 50.0,
+    "risk_multiplier": 0.8,
+    "max_leverage": 10
+  }
+]

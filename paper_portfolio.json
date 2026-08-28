@@ -1,0 +1,12 @@
+{
+  "initial_balance": 10000.0,
+  "cash_balance": 10000.0,
+  "realized_pnl": 0.0,
+  "positions": {},
+  "trade_history": [],
+  "stats": {
+    "total_trades": 0,
+    "winning_trades": 0,
+    "losing_trades": 0
+  }
+}

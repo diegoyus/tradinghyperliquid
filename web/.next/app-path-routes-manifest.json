@@ -1,0 +1,11 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/api/cron/sync/route": "/api/cron/sync",
+  "/api/telegram/test/route": "/api/telegram/test",
+  "/auth/page": "/auth",
+  "/dashboard/page": "/dashboard",
+  "/page": "/",
+  "/settings/page": "/settings",
+  "/traders/page": "/traders"
+}

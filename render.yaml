@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: hyperliquid-copy-engine
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python worker_server.py
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: TELEGRAM_BOT_TOKEN
+        value: 8619700844:AAHKO9gGk--e4jYPvC7tXrgGEPaohFrbyqI
