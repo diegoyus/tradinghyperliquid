@@ -137,37 +137,67 @@ No necesitas buscar direcciones manualmente; puedo escanear todo el exchange por
     // 4. Comando /posiciones o /positions
     if (command === "/posiciones" || command === "/positions") {
       try {
-        // Consultar el estado real de los traders líderes en Hyperliquid
-        const defaultTraders = [
-          { name: "El Francotirador", address: "0x337afda118de433f5a8c8ad6d6ef48b76d027a06" },
-          { name: "Trader 0x5986", address: "0x5986347c1d0133d02d307f08bb1efd44c2eb89d9" },
-          { name: "Sticky (Scalping)", address: "0x613ead0ea5af374af0ccfc117ef116a8e8d133fe" },
+        const userTotalBalance = 10000.0;
+        const copyRules = [
+          { name: "El Francotirador", address: "0x337afda118de433f5a8c8ad6d6ef48b76d027a06", allocationPct: 35.0, maxLev: 10, stopLossPct: 5.0, maxSizingPct: 25.0, riskMult: 1.0 },
+          { name: "Trader 0x5986", address: "0x5986347c1d0133d02d307f08bb1efd44c2eb89d9", allocationPct: 35.0, maxLev: 10, stopLossPct: 5.0, maxSizingPct: 25.0, riskMult: 1.0 },
+          { name: "Sticky (Scalping)", address: "0x613ead0ea5af374af0ccfc117ef116a8e8d133fe", allocationPct: 30.0, maxLev: 10, stopLossPct: 6.0, maxSizingPct: 20.0, riskMult: 1.0 },
         ];
 
-        const openPositionsFound: any[] = [];
+        const myCopiedPositions: any[] = [];
 
-        for (const t of defaultTraders) {
+        for (const rule of copyRules) {
           try {
             const stRes = await fetch(HYPERLIQUID_INFO_URL, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ type: "clearinghouseState", user: t.address }),
+              body: JSON.stringify({ type: "clearinghouseState", user: rule.address }),
             });
             if (stRes.ok) {
               const stData = await stRes.json();
+              const traderAccountValue = parseFloat(stData?.marginSummary?.accountValue || "100000");
               const positions = stData?.assetPositions || [];
+
               positions.forEach((p: any) => {
                 const pos = p.position || {};
                 const szi = parseFloat(pos.szi || "0");
-                if (szi !== 0) {
-                  openPositionsFound.push({
-                    traderName: t.name,
+                const entryPx = parseFloat(pos.entryPx || "0");
+                const unrealizedPnl = parseFloat(pos.unrealizedPnl || "0");
+
+                if (szi !== 0 && entryPx > 0) {
+                  // CÁLCULO DE LA POSICIÓN COPIADA PERSONALIZADA PARA EL USUARIO
+                  const traderPosNotional = Math.abs(szi) * entryPx;
+                  const fractionOfEquity = traderAccountValue > 0 ? (traderPosNotional / traderAccountValue) : 0.1;
+                  const userPosFraction = Math.min(fractionOfEquity * rule.riskMult, rule.maxSizingPct / 100);
+                  
+                  const userAssignedCapital = userTotalBalance * (rule.allocationPct / 100);
+                  const myNotionalUSD = userAssignedCapital * userPosFraction;
+                  const myLeverage = Math.min(pos.leverage?.value || 10, rule.maxLev);
+                  const myMarginUSD = myNotionalUSD / myLeverage;
+                  const myQuantity = myNotionalUSD / entryPx;
+
+                  // PnL proporcional en USD del usuario
+                  const pnlFractionOfTrader = traderAccountValue > 0 ? (unrealizedPnl / traderAccountValue) : 0;
+                  const myUnrealizedPnlUSD = userAssignedCapital * pnlFractionOfTrader;
+                  const myPnlPct = myMarginUSD > 0 ? (myUnrealizedPnlUSD / myMarginUSD) * 100 : 0;
+
+                  // Stop loss personalizado del usuario
+                  const slMultiplier = (rule.stopLossPct / 100) / myLeverage;
+                  const myStopLossPrice = szi > 0 ? entryPx * (1 - slMultiplier) : entryPx * (1 + slMultiplier);
+
+                  myCopiedPositions.push({
+                    traderName: rule.name,
                     coin: pos.coin || "Crypto",
                     side: szi > 0 ? "LONG" : "SHORT",
-                    size: Math.abs(szi),
-                    entryPx: parseFloat(pos.entryPx || "0"),
-                    unrealizedPnl: parseFloat(pos.unrealizedPnl || "0"),
-                    leverage: pos.leverage?.value || 10,
+                    myLeverage,
+                    myMarginUSD: myMarginUSD.toFixed(2),
+                    myNotionalUSD: myNotionalUSD.toFixed(2),
+                    myQuantity: myQuantity.toFixed(4),
+                    entryPx: entryPx.toFixed(2),
+                    myStopLossPrice: myStopLossPrice.toFixed(2),
+                    myUnrealizedPnlUSD: myUnrealizedPnlUSD.toFixed(2),
+                    myPnlPct: myPnlPct.toFixed(2),
+                    isProfit: myUnrealizedPnlUSD >= 0,
                   });
                 }
               });
@@ -175,29 +205,36 @@ No necesitas buscar direcciones manualmente; puedo escanear todo el exchange por
           } catch {}
         }
 
-        if (openPositionsFound.length === 0) {
-          const msg = `📈 <b>Posiciones Abiertas en este Momento:</b> <code>0</code>
-          
-🛡️ <b>Estado:</b> 100% en Liquidez Segura ($10,000.00 USD)
-💡 No hay operaciones abiertas en curso. El bot está monitorizando Hyperliquid 24/7 a la espera de que los traders de tu cesta abran nuevas órdenes.
+        if (myCopiedPositions.length === 0) {
+          const msg = `📈 <b>Tus Posiciones Copiadas:</b> <code>0 activas</code>
 
-👉 <i>Panel en vivo: <a href="${APP_URL}/dashboard">Dashboard Web</a></i>`;
+💰 <b>Tu Capital:</b> $10,000.00 USD (100% en Liquidez Segura)
+🛡️ <b>Tus Reglas de Copia Activas:</b>
+• <b>El Francotirador:</b> 35% ($3,500) | Máx 10x | SL 5%
+• <b>Trader 0x5986:</b> 35% ($3,500) | Máx 10x | SL 5%
+• <b>Sticky (Scalping):</b> 30% ($3,000) | Máx 10x | SL 6%
+
+💡 <i>Tus órdenes se abrirán automáticamente con tu tamaño y límites propios en cuanto los traders entren al mercado.</i>
+
+👉 <i>Ver panel web: <a href="${APP_URL}/dashboard">Ir al Dashboard</a></i>`;
           await sendTelegramReply(chatId, msg);
         } else {
-          let msg = `📈 <b>Posiciones Abiertas en Tiempo Real (${openPositionsFound.length}):</b>\n\n`;
-          openPositionsFound.forEach((p: any) => {
-            const icon = p.unrealizedPnl >= 0 ? "🟢" : "🔴";
-            msg += `${icon} <b>${p.coin} ${p.side} ${p.leverage}x</b>
-• <b>Líder:</b> ${p.traderName}
-• <b>Tamaño:</b> ${p.size} ${p.coin}
-• <b>Precio Entrada:</b> $${p.entryPx.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-• <b>PnL Flotante:</b> ${p.unrealizedPnl >= 0 ? "+" : ""}$${p.unrealizedPnl.toFixed(2)} USD\n\n`;
+          let msg = `📊 <b>Tus Posiciones Copiadas en Tiempo Real (${myCopiedPositions.length}):</b>\n\n`;
+          myCopiedPositions.forEach((p: any) => {
+            const icon = p.isProfit ? "🟢" : "🔴";
+            msg += `${icon} <b>${p.coin} ${p.side} ${p.myLeverage}x (Tu Réplica)</b>
+• <b>Trader Origen:</b> ${p.traderName}
+• <b>Tu Margen Invertido:</b> <b>$${p.myMarginUSD} USD</b>
+• <b>Tu Tamaño Replicado:</b> ${p.myQuantity} ${p.coin} ($${p.myNotionalUSD} USD)
+• <b>Precio de Entrada:</b> $${p.entryPx}
+• <b>Tu Stop-Loss Personal:</b> $${p.myStopLossPrice}
+• <b>Tu Beneficio Flotante:</b> <b>${p.isProfit ? "+" : ""}$${p.myUnrealizedPnlUSD} USD (${p.isProfit ? "+" : ""}${p.myPnlPct}%)</b>\n\n`;
           });
-          msg += `<i>🛡️ Monitoreo activo en la nube 24/7.</i>`;
+          msg += `<i>🛡️ Posiciones calculadas según tus reglas y asignación sobre tus $10,000 USD.</i>`;
           await sendTelegramReply(chatId, msg);
         }
       } catch (err: any) {
-        await sendTelegramReply(chatId, `📈 <b>Posiciones Abiertas:</b> 0 activas en este momento.\n\n🛡️ Saldo: $10,000 USD en liquidez.`);
+        await sendTelegramReply(chatId, `📈 <b>Tus Posiciones Copiadas:</b> 0 activas.\n\n💰 Saldo: $10,000.00 USD en liquidez.`);
       }
       return NextResponse.json({ ok: true });
     }
