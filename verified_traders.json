@@ -1,8 +1,8 @@
 {
-  "lastAudited": "29/08/2026 22:00:07",
-  "totalScanned": 21000,
+  "lastAudited": "29/08/2026 22:16:10",
+  "totalScanned": 21500,
   "totalPassed": 41,
-  "totalFailed": 20959,
+  "totalFailed": 21459,
   "mode": "100%_FULL_CENSUS_ONCHAIN_SQLITE",
   "traders": [
     {
@@ -6934,6 +6934,69 @@
         }
       ],
       "strategy": "Operativa en xyz:SNDK, xyz:SKHX, PUMP. Ratio B/P 180.5x. \ud83d\udcc8 Tendencial Alcista (Longs)."
+    },
+    {
+      "address": "0x21e631b41414249b72c8ecdd47f5a090f945a549",
+      "name": "Trader 0x21e6 (ETH)",
+      "score": "4.0",
+      "passedFilter": false,
+      "filterAuditReason": "\u274c DESCARTADO: Win Rate (59.8%) inferior al 65%.; Fall\u00f3 tests forenses: Patr\u00f3n Martingala.",
+      "accountValue": 20078.74,
+      "winRate": 59.8,
+      "profitFactor": 173.14,
+      "sortinoRatio": 99.0,
+      "expectancyUSD": 198.24,
+      "maxConsecutiveWins": 42,
+      "maxConsecutiveLosses": 61,
+      "luckyTradePct": 7.5,
+      "marketRegime": "\ud83d\udcc9 Cobertura (Shorts)",
+      "bestSession": "Sesi\u00f3n Nueva York",
+      "tradingStyle": "\u26a1 Scalping Cuantitativo",
+      "maxDrawdownPct": 0.54,
+      "totalFills": 2000,
+      "closedTradesCount": 922,
+      "netPnlTotal": 182774.33,
+      "monthPnl": 0.0,
+      "monthRoi": 0.0,
+      "monthWinRate": 59.8,
+      "weekPnl": 0.0,
+      "weekWinRate": 59.8,
+      "floatingLossPct": 0.0,
+      "marginUtilizationPct": 0.0,
+      "topAssets": "ETH, SOL, BTC",
+      "anomalies": [
+        {
+          "test": "Distribuci\u00f3n de Ganancias",
+          "status": "PASS",
+          "detail": "Ganancias 100% org\u00e1nicas."
+        },
+        {
+          "test": "Patr\u00f3n Martingala",
+          "status": "FAIL",
+          "detail": "Detectadas 32 duplicaciones de tama\u00f1o tras p\u00e9rdidas."
+        },
+        {
+          "test": "P\u00e9rdidas Flotantes",
+          "status": "PASS",
+          "detail": "0% p\u00e9rdidas ocultas en posiciones abiertas."
+        },
+        {
+          "test": "Ratio Riesgo/Beneficio",
+          "status": "PASS",
+          "detail": "Relaci\u00f3n equilibrada (116.58x)."
+        },
+        {
+          "test": "Solvencia de Margen",
+          "status": "PASS",
+          "detail": "Margen en uso seguro (0.0%)."
+        },
+        {
+          "test": "Rachas de P\u00e9rdidas",
+          "status": "WARNING",
+          "detail": "Racha m\u00e1xima de 61 p\u00e9rdidas seguidas."
+        }
+      ],
+      "strategy": "Operativa en ETH, SOL, BTC. Ratio B/P 173.1x. \ud83d\udcc9 Cobertura (Shorts)."
     },
     {
       "address": "0xf10c81e973747459bab12a775f51b80ce0de4e3d",
@@ -15691,69 +15754,6 @@
         }
       ],
       "strategy": "Operativa en HYPE, SOL, BNB. Ratio B/P 99.0x. \ud83d\udcc8 Tendencial Alcista (Longs)."
-    },
-    {
-      "address": "0x5534069d340b0a6c82267be3de46bf0a233f0bfd",
-      "name": "Trader 0x5534 (BTC)",
-      "score": "4.0",
-      "passedFilter": false,
-      "filterAuditReason": "\u274c DESCARTADO: P\u00e9rdida flotante abierta del -20.2%.; Margen en uso excesivo (100.0%).; Fall\u00f3 tests forenses: P\u00e9rdidas Flotantes, Sobreapalancamiento.",
-      "accountValue": 41839.66,
-      "winRate": 100.0,
-      "profitFactor": 99.0,
-      "sortinoRatio": 9.9,
-      "expectancyUSD": 1647.11,
-      "maxConsecutiveWins": 37,
-      "maxConsecutiveLosses": 0,
-      "luckyTradePct": 29.5,
-      "marketRegime": "\ud83d\udcc9 Cobertura (Shorts)",
-      "bestSession": "Sesi\u00f3n Nueva York",
-      "tradingStyle": "\ud83c\udf0a Swing Trading de Posici\u00f3n",
-      "maxDrawdownPct": 0.0,
-      "totalFills": 91,
-      "closedTradesCount": 37,
-      "netPnlTotal": 60943.08,
-      "monthPnl": 0.0,
-      "monthRoi": 0.0,
-      "monthWinRate": 100.0,
-      "weekPnl": 0.0,
-      "weekWinRate": 100.0,
-      "floatingLossPct": -20.2,
-      "marginUtilizationPct": 100.0,
-      "topAssets": "BTC",
-      "anomalies": [
-        {
-          "test": "Concentraci\u00f3n de Beneficios",
-          "status": "WARNING",
-          "detail": "El mejor trade aport\u00f3 el 29.5% del total."
-        },
-        {
-          "test": "Anti-Martingala",
-          "status": "PASS",
-          "detail": "Gesti\u00f3n de tama\u00f1o disciplinada."
-        },
-        {
-          "test": "P\u00e9rdidas Flotantes",
-          "status": "FAIL",
-          "detail": "P\u00e9rdida abierta de -20.2% del capital."
-        },
-        {
-          "test": "Ratio Riesgo/Beneficio",
-          "status": "PASS",
-          "detail": "Relaci\u00f3n equilibrada (99.00x)."
-        },
-        {
-          "test": "Sobreapalancamiento",
-          "status": "FAIL",
-          "detail": "Margen en uso elevado (100.0%)."
-        },
-        {
-          "test": "Control de Rachas",
-          "status": "PASS",
-          "detail": "M\u00e1x 0 p\u00e9rdidas seguidas."
-        }
-      ],
-      "strategy": "Operativa en BTC. Ratio B/P 99.0x. \ud83d\udcc9 Cobertura (Shorts)."
     }
   ]
 }

@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import { DollarSign, TrendingUp, Award, Activity, ArrowUpRight, ArrowDownRight, RefreshCw, UserCheck, Shield, ChevronRight, PieChart, Sliders } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, Cell } from "recharts";
 import Link from "next/link";
-import { getStoredProfile } from "@/lib/storage";
+import { getStoredProfile, resetProfile } from "@/lib/storage";
 import { UserProfile } from "@/lib/types";
 
 export default function DashboardPage() {
@@ -102,9 +102,23 @@ export default function DashboardPage() {
             const pos = p.position || {};
             const szi = parseFloat(pos.szi || "0");
             const unrealizedPnl = parseFloat(pos.unrealizedPnl || "0");
+            const coin = pos.coin || "Crypto";
             if (szi !== 0) {
+              let openTimeMs = 0;
+              if (Array.isArray(fills)) {
+                const matchingFills = fills.filter((f: any) => f.coin === coin);
+                if (matchingFills.length > 0) {
+                  openTimeMs = Math.min(...matchingFills.map((f: any) => f.time || 0));
+                }
+              }
+
+              // Si se abrió antes del reinicio, la ignoramos completamente
+              if (openTimeMs > 0 && openTimeMs < resetTime) {
+                continue;
+              }
+
               openPositions.push({
-                coin: pos.coin || "Crypto",
+                coin,
                 side: szi > 0 ? "LONG" : "SHORT",
                 leverage: pos.leverage?.value || 10,
               });
@@ -514,6 +528,27 @@ function LiveCopiedPositions({ traders, userBalance }: { traders: any[]; userBal
 
           if (szi === 0 || entryPx <= 0) continue;
 
+          // Buscar fecha apertura en fills (la más antigua para este coin)
+          let openDate = "—";
+          let openTimeMs = 0;
+          if (Array.isArray(fills)) {
+            const matchingFills = fills.filter((f: any) => f.coin === coin);
+            if (matchingFills.length > 0) {
+              openTimeMs = Math.min(...matchingFills.map((f: any) => f.time || 0));
+              const d = new Date(openTimeMs);
+              openDate = d.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "2-digit" }) + " " + d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+            }
+          }
+
+          const resetTime = typeof window !== "undefined"
+            ? parseInt(localStorage.getItem("hyperliquid_reset_timestamp") || "0")
+            : 0;
+
+          // Si se abrió antes del reinicio, la ignoramos por completo
+          if (openTimeMs > 0 && openTimeMs < resetTime) {
+            continue;
+          }
+
           const traderPosNotional = Math.abs(szi) * entryPx;
           const fraction = traderAccountValue > 0 ? traderPosNotional / traderAccountValue : 0.1;
           const userFraction = Math.min(fraction * (t.risk_multiplier || 1.0), (t.max_trade_sizing_pct || 25) / 100);
@@ -525,16 +560,6 @@ function LiveCopiedPositions({ traders, userBalance }: { traders: any[]; userBal
           const pnlFrac = traderAccountValue > 0 ? unrealizedPnl / traderAccountValue : 0;
           const myPnl = userCapital * pnlFrac;
           const myPnlPct = myMargin > 0 ? (myPnl / myMargin) * 100 : 0;
-
-          // Buscar fecha apertura en fills
-          let openDate = "—";
-          if (Array.isArray(fills)) {
-            const matchingFill = fills.find((f: any) => f.coin === coin);
-            if (matchingFill?.time) {
-              const d = new Date(matchingFill.time);
-              openDate = d.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "2-digit" }) + " " + d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
-            }
-          }
 
           allPositions.push({
             traderName: t.name,

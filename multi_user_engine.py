@@ -242,87 +242,13 @@ class MultiUserCopyEngine:
         print(f"   🤖 Bot Token Telegram: {TELEGRAM_BOT_TOKEN[:10]}... (Activo)")
         print("🚀" * 38)
 
-        # 1. Sincronización Inicial de posiciones abiertas existentes
-        print("\n🔄 Iniciando Sincronización Inicial de posiciones abiertas existentes...")
-        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        updated_db = False
-
-        for addr, name in unique_traders.items():
-            try:
-                state = self.info.user_state(addr)
-                leader_balance = float(state.get("marginSummary", {}).get("accountValue", 0))
-                self.leader_balances[addr] = leader_balance if leader_balance > 0 else 50_000.0
-                
-                # Obtener posiciones abiertas del líder
-                asset_positions = state.get("assetPositions", [])
-                for ap in asset_positions:
-                    pos = ap.get("position", {})
-                    coin = pos.get("coin", "")
-                    szi = float(pos.get("szi", 0))
-                    entry_px = float(pos.get("entryPx", 0))
-                    
-                    if szi == 0 or entry_px <= 0 or not coin:
-                        continue
-                    
-                    # Para cada usuario, verificar si copia a este trader y si ya tiene la posición
-                    for user_id, user in users.items():
-                        user_trader_cfg = None
-                        for t in user.get("traders", []):
-                            if t["address"].lower() == addr.lower():
-                                user_trader_cfg = t
-                                break
-                        
-                        if not user_trader_cfg:
-                            continue
-                        
-                        pos_key = f"{coin}_{addr[:6]}"
-                        user_positions = user.setdefault("positions", {})
-                        
-                        if pos_key not in user_positions:
-                            # Replicar la posición existente al valor actual
-                            alloc_pct = float(user_trader_cfg.get("allocation_pct", 25.0))
-                            risk_multiplier = float(user_trader_cfg.get("risk_multiplier", 1.0))
-                            max_leverage = int(user_trader_cfg.get("max_leverage", 10))
-                            trader_name = user_trader_cfg.get("name", name)
-                            
-                            user_cash = user.get("cash_balance", 10_000.0)
-                            allocated_capital = user_cash * (alloc_pct / 100.0)
-                            
-                            # Proporcional
-                            ratio = (allocated_capital / self.leader_balances[addr]) * risk_multiplier
-                            user_sz = abs(szi) * ratio
-                            trade_usd = user_sz * entry_px
-                            
-                            # Control de apalancamiento y tamaño máximo
-                            max_allowed_usd = allocated_capital * 0.35 * max_leverage
-                            if trade_usd > max_allowed_usd:
-                                user_sz = max_allowed_usd / entry_px
-                                trade_usd = max_allowed_usd
-                            
-                            side = "LONG" if szi > 0 else "SHORT"
-                            user_positions[pos_key] = {
-                                "trader_name": trader_name,
-                                "trader_addr": addr,
-                                "coin": coin,
-                                "size": user_sz,
-                                "entry_px": entry_px,
-                                "side": side,
-                                "leverage": max_leverage,
-                                "open_time": now_str + " (Sincronizada)"
-                            }
-                            updated_db = True
-                            print(f"   [SYNC INITIAL] Copiada posición existente para {user['name']}: {side} {coin} de {trader_name} a ${entry_px:,.2f} (Tam: {user_sz:.4f})")
-            except Exception as e:
-                print(f"   ⚠️ Error en sincronización inicial de {addr}: {e}")
-
-        if updated_db:
-            save_users_db(users)
-            print("✅ Base de datos sincronizada con posiciones iniciales.")
-
-        # 2. Suscribirse a WebSockets
+        # Suscribirse a WebSockets y guardar saldos líderes
         for addr, name in unique_traders.items():
             if addr not in self.subscribed_addresses:
                 try:
+                    state = self.info.user_state(addr)
+                    val = float(state.get("marginSummary", {}).get("accountValue", 0))
+                    self.leader_balances[addr] = val if val > 0 else 50_000.0
                     fills = self.info.user_fills(addr)
                     self.last_fill_times[addr] = int(fills[0].get("time", 0)) if fills else 0
                     
