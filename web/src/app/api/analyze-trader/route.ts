@@ -15,7 +15,6 @@ async function getSymbolMap(): Promise<Record<string, string>> {
   try {
     const map: Record<string, string> = {};
 
-    // 1. Obtener nombres de perpetuos (Perps)
     const perpsRes = await fetch(HYPERLIQUID_INFO_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -31,7 +30,6 @@ async function getSymbolMap(): Promise<Record<string, string>> {
       });
     }
 
-    // 2. Obtener nombres de tokens Spot
     const spotRes = await fetch(HYPERLIQUID_INFO_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -39,23 +37,11 @@ async function getSymbolMap(): Promise<Record<string, string>> {
     });
     if (spotRes.ok) {
       const spotData = await spotRes.json();
-      const tokens = spotData.tokens || [];
-      const universe = spotData.universe || [];
-
-      // Mapear universe spot pairs
-      universe.forEach((pair: any, idx: number) => {
-        const baseIdx = pair.tokens?.[0];
-        const baseName = tokens[baseIdx]?.name || `SPOT-${idx}`;
-        map[`@${idx}`] = baseName;
-        map[`@${idx + 1}`] = baseName;
-        map[`${idx + 10000}`] = baseName;
-      });
-
-      // Mapear tokens spot individuales
-      tokens.forEach((t: any, idx: number) => {
+      (spotData.tokens || []).forEach((t: any, idx: number) => {
         if (t?.name) {
           map[`@${t.index}`] = t.name;
           map[`@${idx}`] = t.name;
+          map[`#${idx}`] = t.name;
         }
       });
     }
@@ -74,7 +60,6 @@ function resolveCoinSymbol(rawCoin: string, symbolMap: Record<string, string>): 
   const clean = String(rawCoin).trim();
   if (symbolMap[clean]) return symbolMap[clean];
 
-  // Si empieza por @ o # (token Spot de Hyperliquid)
   if (clean.startsWith("@") || clean.startsWith("#")) {
     const spotIndex = clean.slice(1);
     if (symbolMap[clean]) return symbolMap[clean];
@@ -83,7 +68,6 @@ function resolveCoinSymbol(rawCoin: string, symbolMap: Record<string, string>): 
     return `SPOT-${spotIndex}`;
   }
 
-  // Si es un índice numérico
   if (/^\d+$/.test(clean) && symbolMap[clean]) {
     return symbolMap[clean];
   }
@@ -105,11 +89,11 @@ export async function POST(req: Request) {
     const cleanAddress = address.trim().toLowerCase();
     const symbolMap = await getSymbolMap();
 
-    // 1. Consultar estado actual (saldo y posiciones abiertas)
+    // 1. Consultar estado en tiempo real (clearinghouseState)
     const stateRes = await fetch(HYPERLIQUID_INFO_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "userState", user: cleanAddress }),
+      body: JSON.stringify({ type: "clearinghouseState", user: cleanAddress }),
     });
     const userState = stateRes.ok ? await stateRes.json() : {};
 
@@ -130,9 +114,9 @@ export async function POST(req: Request) {
     const marginSummary = userState?.marginSummary || {};
     const accountValue = parseFloat(marginSummary?.accountValue || "0");
     const totalMarginUsed = parseFloat(marginSummary?.totalMarginUsed || "0");
+    const rawPositions = userState?.assetPositions || [];
 
     // Procesar posiciones abiertas con nombres legibles
-    const rawPositions = userState?.assetPositions || [];
     const openPositions = rawPositions.map((p: any) => {
       const pos = p.position || {};
       const szi = parseFloat(pos.szi || "0");
@@ -148,17 +132,22 @@ export async function POST(req: Request) {
       };
     });
 
-    // Procesar TODO el track record histórico
+    // Procesar todo el historial de trades
     const coinCounts: Record<string, number> = {};
-    const closedTrades: number[] = [];
+    const closedTrades: { pnl: number; time: number; notional: number; fee: number }[] = [];
 
     const formattedTrades = rawFills.map((f: any, idx: number) => {
       const pnl = parseFloat(f.closedPnl || "0");
       const coinName = resolveCoinSymbol(f.coin, symbolMap);
+      const px = parseFloat(f.px || "0");
+      const sz = parseFloat(f.sz || "0");
+      const notional = px * sz;
+      const fee = parseFloat(f.fee || "0");
+
       coinCounts[coinName] = (coinCounts[coinName] || 0) + 1;
 
       if (pnl !== 0) {
-        closedTrades.push(pnl);
+        closedTrades.push({ pnl, time: f.time, notional, fee });
       }
 
       return {
@@ -175,54 +164,89 @@ export async function POST(req: Request) {
         coin: coinName,
         dir: f.dir || "Trade",
         side: f.side === "B" ? "COMPRA" : "VENTA",
-        px: parseFloat(f.px || "0"),
-        sz: parseFloat(f.sz || "0"),
+        px,
+        sz,
+        notionalUSD: notional,
         closedPnl: pnl,
-        fee: parseFloat(f.fee || "0"),
+        fee,
         hash: f.hash || "",
       };
     });
 
-    // Estadísticas completas
-    const wins = closedTrades.filter((p) => p > 0);
-    const losses = closedTrades.filter((p) => p < 0);
-    const totalTrades = closedTrades.length;
+    // Métricas Estadísticas Base
+    const pnls = closedTrades.map((t) => t.pnl);
+    const wins = pnls.filter((p) => p > 0);
+    const losses = pnls.filter((p) => p < 0);
+    const totalTrades = pnls.length;
     const winRate = totalTrades > 0 ? (wins.length / totalTrades) * 100 : 0;
     const grossProfit = wins.reduce((acc, val) => acc + val, 0);
     const grossLoss = Math.abs(losses.reduce((acc, val) => acc + val, 0));
     const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? 99.0 : 0;
-    const netPnlTotal = closedTrades.reduce((acc, val) => acc + val, 0);
+    const netPnlTotal = pnls.reduce((acc, val) => acc + val, 0);
 
     const avgWin = wins.length > 0 ? grossProfit / wins.length : 0;
     const avgLoss = losses.length > 0 ? grossLoss / losses.length : 0;
     const winLossRatio = avgLoss > 0 ? avgWin / avgLoss : 99.0;
 
-    // 3. AUDITORÍA ANTI-TRAMPAS DE PÉRDIDAS FLOTANTES (Anti-Bagholding & Margin Health)
+    // 1. EXPECTATIVA MATEMÁTICA POR TRADE ($)
+    const winProbability = winRate / 100;
+    const lossProbability = (100 - winRate) / 100;
+    const expectancyPerTrade = (winProbability * avgWin) - (lossProbability * avgLoss);
+
+    // 2. RACHA MÁXIMA DE GANANCIAS Y PÉRDIDAS CONSECUTIVAS
+    let maxConsecutiveWins = 0;
+    let maxConsecutiveLosses = 0;
+    let currentWins = 0;
+    let currentLosses = 0;
+
+    for (const p of pnls) {
+      if (p > 0) {
+        currentWins++;
+        currentLosses = 0;
+        if (currentWins > maxConsecutiveWins) maxConsecutiveWins = currentWins;
+      } else if (p < 0) {
+        currentLosses++;
+        currentWins = 0;
+        if (currentLosses > maxConsecutiveLosses) maxConsecutiveLosses = currentLosses;
+      }
+    }
+
+    // 3. AUDITORÍA DE PÉRDIDAS FLOTANTES & MARGEN
     const totalUnrealizedPnl = openPositions.reduce((acc: number, p: any) => acc + (p.unrealizedPnl || 0), 0);
     const floatingLossPct = accountValue > 0 ? (totalUnrealizedPnl / accountValue) * 100 : 0;
     const marginUtilizationPct = accountValue > 0 ? (totalMarginUsed / accountValue) * 100 : 0;
 
-    let riskHealthStatus = "CLEAN"; // CLEAN, MODERATE_WARNING, DANGEROUS_BAGHOLDING
-    let riskHealthMessage = "Gestión de riesgo sólida: Sin pérdidas flotantes ocultas ni sobreapalancamiento.";
+    // 4. RATIO DE SORTINO & CALMAR RATIO (Métricas de Hedge Fund)
+    const downsideReturns = losses.map((p) => Math.pow(p, 2));
+    const downsideDev = downsideReturns.length > 0 ? Math.sqrt(downsideReturns.reduce((a, b) => a + b, 0) / totalTrades) : 1;
+    const sortinoRatio = downsideDev > 0 ? Math.max(0, netPnlTotal / (downsideDev * Math.sqrt(totalTrades))) : 9.9;
 
-    if (totalUnrealizedPnl < 0 && Math.abs(floatingLossPct) >= 15.0) {
-      riskHealthStatus = "DANGEROUS_BAGHOLDING";
-      riskHealthMessage = `🚩 ALERTA DE RIESGO: El trader tiene -$${Math.abs(totalUnrealizedPnl).toLocaleString("en-US", { maximumFractionDigits: 0 })} USD (${Math.abs(floatingLossPct).toFixed(1)}% de su cuenta) en pérdidas abiertas sin cerrar. Típico de estrategias Martingala/Bagholding.`;
-    } else if (totalUnrealizedPnl < 0 && Math.abs(floatingLossPct) >= 5.0) {
-      riskHealthStatus = "MODERATE_WARNING";
-      riskHealthMessage = `⚠️ ATENCIÓN: Mantiene pérdidas flotantes del ${Math.abs(floatingLossPct).toFixed(1)}% en posiciones abiertas.`;
-    } else if (marginUtilizationPct > 45.0) {
-      riskHealthStatus = "MODERATE_WARNING";
-      riskHealthMessage = `⚠️ ATENCIÓN: Alta utilización de margen (${marginUtilizationPct.toFixed(1)}% de la cuenta en riesgo).`;
-    }
+    // Curva de PnL y Drawdown Máximo
+    let peak = 10000;
+    let currentBalance = 10000;
+    let maxDrawdownPct = 0;
+    let peakUSD = 0;
+    let currUSD = 0;
+    let maxDrawdownUSD = 0;
 
-    // Curva de PnL acumulada histórica del trader
-    let runningPnl = 0;
     const pnlCurve: { tradeIndex: number; time: string; pnl: number }[] = [];
-    const step = Math.max(1, Math.floor(closedTrades.length / 50));
-    [...closedTrades].reverse().forEach((pnl, i) => {
+    const step = Math.max(1, Math.floor(pnls.length / 50));
+    let runningPnl = 0;
+
+    [...pnls].reverse().forEach((pnl, i) => {
       runningPnl += pnl;
-      if (i % step === 0 || i === closedTrades.length - 1) {
+      const ratio = accountValue > 0 ? 10000 / accountValue : 0.1;
+      currentBalance += pnl * ratio;
+      if (currentBalance > peak) peak = currentBalance;
+      const dd = ((peak - currentBalance) / peak) * 100;
+      if (dd > maxDrawdownPct) maxDrawdownPct = dd;
+
+      currUSD += pnl;
+      if (currUSD > peakUSD) peakUSD = currUSD;
+      const ddUSD = peakUSD - currUSD;
+      if (ddUSD > maxDrawdownUSD) maxDrawdownUSD = ddUSD;
+
+      if (i % step === 0 || i === pnls.length - 1) {
         pnlCurve.push({
           tradeIndex: i + 1,
           time: `#${i + 1}`,
@@ -231,19 +255,139 @@ export async function POST(req: Request) {
       }
     });
 
-    // Estimación de Max Drawdown histórico
-    let peak = 10000;
-    let currentBalance = 10000;
-    let maxDrawdownPct = 0;
-    for (const pnl of [...closedTrades].reverse()) {
-      const ratio = accountValue > 0 ? 10000 / accountValue : 0.1;
-      currentBalance += pnl * ratio;
-      if (currentBalance > peak) peak = currentBalance;
-      const dd = ((peak - currentBalance) / peak) * 100;
-      if (dd > maxDrawdownPct) maxDrawdownPct = dd;
+    const calmarRatio = maxDrawdownUSD > 0 ? (netPnlTotal / maxDrawdownUSD) : 99.0;
+
+    // 5. ESTILO OPERATIVO ESTIMADO
+    let tradingStyle = "Intradiario / Scalping";
+    if (totalTrades >= 500) tradingStyle = "⚡ Alta Frecuencia / Scalping Cuantitativo";
+    else if (totalTrades >= 100) tradingStyle = "⏱️ Day Trading Intradiario";
+    else tradingStyle = "🌊 Swing Trading de Posición";
+
+    // ==========================================
+    // 🕵️‍♂️ BATERÍA DE 6 TESTS FORENSES Y ANOMALÍAS
+    // ==========================================
+    const anomalies: { test: string; status: "PASS" | "WARNING" | "FAIL"; detail: string; severity: string }[] = [];
+
+    // Test 1: Concentración de Beneficios (Lucky Trade)
+    const maxWin = wins.length > 0 ? Math.max(...wins) : 0;
+    const concentrationPct = grossProfit > 0 ? (maxWin / grossProfit) * 100 : 0;
+    if (concentrationPct >= 45.0) {
+      anomalies.push({
+        test: "Dependencia de Golpe de Suerte (Lucky Trade)",
+        status: "FAIL",
+        detail: `El mayor trade individual aportó $${maxWin.toLocaleString("en-US", { maximumFractionDigits: 0 })} USD (${concentrationPct.toFixed(1)}% del beneficio total). Beneficio excesivamente concentrado.`,
+        severity: "CRÍTICA",
+      });
+    } else if (concentrationPct >= 25.0) {
+      anomalies.push({
+        test: "Concentración Moderada de Beneficios",
+        status: "WARNING",
+        detail: `El mayor trade representa el ${concentrationPct.toFixed(1)}% de las ganancias totales.`,
+        severity: "MEDIA",
+      });
+    } else {
+      anomalies.push({
+        test: "Distribución Equilibrada de Ganancias",
+        status: "PASS",
+        detail: `Excelente: Ganancias uniformes. Ningún trade individual supera el ${concentrationPct.toFixed(1)}% del total.`,
+        severity: "NINGUNA",
+      });
     }
 
-    // Calcular Puntuación Algorítmica Estricta (0.0 a 10.0)
+    // Test 2: Detector de Patrón Martingala
+    let martingaleSpikes = 0;
+    for (let i = 1; i < formattedTrades.length; i++) {
+      const prev = formattedTrades[i - 1];
+      const curr = formattedTrades[i];
+      if (prev.closedPnl < 0 && curr.notionalUSD >= prev.notionalUSD * 2.2) {
+        martingaleSpikes++;
+      }
+    }
+    if (martingaleSpikes >= 3) {
+      anomalies.push({
+        test: "Detector de Martingala / Doblado de Posición",
+        status: "FAIL",
+        detail: `Se detectaron ${martingaleSpikes} aumentos bruscos de tamaño tras pérdidas. Patrón de riesgo de quiebra.`,
+        severity: "ALTA",
+      });
+    } else {
+      anomalies.push({
+        test: "Gestión de Tamaño Disciplinada (Anti-Martingala)",
+        status: "PASS",
+        detail: "No duplica posiciones tras pérdidas. Dimensionamiento de posición profesional.",
+        severity: "NINGUNA",
+      });
+    }
+
+    // Test 3: Pérdidas Flotantes Ocultas en Tiempo Real (Anti-Bagholding)
+    if (totalUnrealizedPnl < 0 && Math.abs(floatingLossPct) >= 10.0) {
+      anomalies.push({
+        test: "Pérdidas Flotantes Ocultas (Bagholding)",
+        status: "FAIL",
+        detail: `Mantiene -$${Math.abs(totalUnrealizedPnl).toLocaleString("en-US", { maximumFractionDigits: 0 })} USD (${Math.abs(floatingLossPct).toFixed(1)}% del capital) en pérdidas abiertas sin cerrar.`,
+        severity: "CRÍTICA",
+      });
+    } else {
+      anomalies.push({
+        test: "Pérdidas Flotantes Ocultas",
+        status: "PASS",
+        detail: totalUnrealizedPnl >= 0 ? "Sin pérdidas abiertas en curso." : `Pérdida flotante ínfima (${Math.abs(floatingLossPct).toFixed(2)}%). Control de stop-loss adecuado.`,
+        severity: "NINGUNA",
+      });
+    }
+
+    // Test 4: Asimetría de Pérdida Media vs Ganancia Media
+    if (avgLoss >= avgWin * 4 && losses.length > 0) {
+      anomalies.push({
+        test: "Asimetría de Riesgo / Pérdida Media Desproporcionada",
+        status: "WARNING",
+        detail: `Pierde en promedio $${avgLoss.toFixed(0)} USD frente a $${avgWin.toFixed(0)} USD de ganancia media (Ratio ${winLossRatio.toFixed(2)}x).`,
+        severity: "MEDIA",
+      });
+    } else {
+      anomalies.push({
+        test: "Ratio Riesgo / Beneficio",
+        status: "PASS",
+        detail: `Relación sana: +$${avgWin.toFixed(0)} ganancia media vs -$${avgLoss.toFixed(0)} pérdida media (${winLossRatio.toFixed(2)}x).`,
+        severity: "NINGUNA",
+      });
+    }
+
+    // Test 5: Utilización de Margen y Apalancamiento Extremo
+    if (marginUtilizationPct >= 45.0) {
+      anomalies.push({
+        test: "Sobreapalancamiento de Margen",
+        status: "FAIL",
+        detail: `Margen en uso del ${marginUtilizationPct.toFixed(1)}%. Elevado riesgo de liquidación.`,
+        severity: "ALTA",
+      });
+    } else {
+      anomalies.push({
+        test: "Margen Libre y Solvencia",
+        status: "PASS",
+        detail: `Margen en uso del ${marginUtilizationPct.toFixed(1)}%. Solvencia holgada para absorber volatilidad.`,
+        severity: "NINGUNA",
+      });
+    }
+
+    // Test 6: Resistencia a Rachas Adversas (Losing Streaks)
+    if (maxConsecutiveLosses >= 6) {
+      anomalies.push({
+        test: "Tolerancia a Rachas Adversas",
+        status: "WARNING",
+        detail: `Racha histórica de ${maxConsecutiveLosses} pérdidas seguidas. Requiere stop-loss y apalancamiento conservador.`,
+        severity: "BAJA",
+      });
+    } else {
+      anomalies.push({
+        test: "Control de Rachas Adversas",
+        status: "PASS",
+        detail: `Racha máxima de solo ${maxConsecutiveLosses} pérdidas consecutivas en su historial.`,
+        severity: "NINGUNA",
+      });
+    }
+
+    // PUNTUACIÓN CALIBRADA INSTITUCIONAL (0.0 a 10.0)
     let score = 5.0;
     if (winRate >= 90) score += 2.2;
     else if (winRate >= 75) score += 1.5;
@@ -255,24 +399,17 @@ export async function POST(req: Request) {
 
     if (profitFactor >= 4) score += 1.0;
     else if (profitFactor >= 2) score += 0.5;
-    else if (profitFactor < 1.3) score -= 1.5;
 
-    // Penalizaciones Anti-Pérdidas Flotantes
-    if (riskHealthStatus === "DANGEROUS_BAGHOLDING") {
-      score -= 3.5;
-    } else if (riskHealthStatus === "MODERATE_WARNING") {
-      score -= 1.2;
-    }
+    if (expectancyPerTrade > 50) score += 0.5;
+    if (sortinoRatio > 3.0) score += 0.5;
 
-    if (avgLoss > avgWin * 5 && losses.length > 0) {
-      // Si cuando pierde, pierde 5 veces más que cuando gana (ratio asimétrico peligroso)
-      score -= 1.0;
-    }
+    anomalies.forEach((a) => {
+      if (a.status === "FAIL") score -= a.severity === "CRÍTICA" ? 3.0 : 1.5;
+      else if (a.status === "WARNING") score -= 0.6;
+    });
 
-    if (accountValue >= 50000) score += 0.5;
     score = Math.min(Math.max(score, 1.0), 9.9);
 
-    // Activos más operados (con nombres resueltos)
     const topAssets = Object.entries(coinCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6)
@@ -286,24 +423,32 @@ export async function POST(req: Request) {
       marginUtilizationPct: marginUtilizationPct.toFixed(1),
       totalUnrealizedPnl,
       floatingLossPct: floatingLossPct.toFixed(1),
-      riskHealthStatus,
-      riskHealthMessage,
       score: score.toFixed(1),
       winRate: winRate.toFixed(1),
       profitFactor: profitFactor.toFixed(2),
       avgWin: avgWin.toFixed(2),
       avgLoss: avgLoss.toFixed(2),
       winLossRatio: winLossRatio.toFixed(2),
+      expectancyPerTrade: expectancyPerTrade.toFixed(2),
+      maxConsecutiveWins,
+      maxConsecutiveLosses,
+      sortinoRatio: sortinoRatio.toFixed(2),
+      calmarRatio: calmarRatio.toFixed(2),
+      tradingStyle,
       maxDrawdownPct: maxDrawdownPct.toFixed(2),
+      maxDrawdownUSD: maxDrawdownUSD.toFixed(2),
       netPnlTotal,
       totalFills: rawFills.length,
       closedTradesCount: totalTrades,
       winningTradesCount: wins.length,
       losingTradesCount: losses.length,
+      concentrationPct: concentrationPct.toFixed(1),
+      maxWin: maxWin.toFixed(2),
       openPositions,
       topAssets,
       pnlCurve,
-      allTrades: formattedTrades, // TODO EL TRACK RECORD HISTÓRICO
+      anomalies,
+      allTrades: formattedTrades,
     });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

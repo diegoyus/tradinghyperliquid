@@ -519,42 +519,68 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          {/* Risk Health & Anti-Bagholding Audit Banner */}
-          <div className={`p-4 rounded-2xl border flex items-start gap-3.5 ${
-            data.riskHealthStatus === "DANGEROUS_BAGHOLDING"
-              ? "bg-red-500/10 border-red-500/40 text-red-300"
-              : data.riskHealthStatus === "MODERATE_WARNING"
-              ? "bg-yellow-500/10 border-yellow-500/40 text-yellow-300"
-              : "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
-          }`}>
-            <div className="p-2 rounded-xl bg-black/30 text-lg">
-              {data.riskHealthStatus === "DANGEROUS_BAGHOLDING" ? "🚩" : data.riskHealthStatus === "MODERATE_WARNING" ? "⚠️" : "🛡️"}
-            </div>
-            <div className="flex-1 text-xs space-y-1.5">
-              <div className="font-bold text-sm text-white flex items-center justify-between">
-                <span>Auditoría Anti-Pérdidas Flotantes & Riesgo en Tiempo Real</span>
-                <span className="font-mono text-xs px-2.5 py-0.5 rounded bg-black/40 border border-white/10">
-                  Margen Usado: {data.marginUtilizationPct}%
+          {/* Forensic Anomaly Battery & Institutional Health Section */}
+          {data.anomalies && data.anomalies.length > 0 && (
+            <div className="p-6 rounded-2xl bg-surface border border-amber-400/30 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-surface-border pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-base font-bold text-white flex items-center gap-2">
+                    🔬 Resultados de la Batería Forense On-Chain
+                  </span>
+                  <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-amber-400/20 text-amber-300 border border-amber-400/40">
+                    6 Tests de Detección de Trampas
+                  </span>
+                </div>
+                <span className="text-xs text-gray-400 font-mono">
+                  Estilo: <strong className="text-white">{data.tradingStyle}</strong>
                 </span>
               </div>
-              <p className="text-gray-300 leading-relaxed">{data.riskHealthMessage}</p>
-              <div className="flex flex-wrap gap-4 pt-1 text-[11px] text-gray-400 font-mono border-t border-white/10">
-                <span>• Ganancia Media: <strong className="text-emerald-400">+${data.avgWin}</strong></span>
-                <span>• Pérdida Media: <strong className="text-red-400">-${data.avgLoss}</strong></span>
-                <span>• Ratio Riesgo/Beneficio: <strong className="text-white">{data.winLossRatio}x</strong></span>
-                <span>• PnL Flotante Abierto: <strong className={data.totalUnrealizedPnl >= 0 ? "text-emerald-400" : "text-red-400"}>${data.totalUnrealizedPnl?.toFixed(2)} ({data.floatingLossPct}%)</strong></span>
+
+              {/* Grid de Tests Forenses */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {data.anomalies.map((item: any, i: number) => (
+                  <div
+                    key={i}
+                    className={`p-3.5 rounded-xl border flex items-start gap-3 text-xs ${
+                      item.status === "PASS"
+                        ? "bg-background/80 border-surface-border text-gray-200"
+                        : item.status === "WARNING"
+                        ? "bg-yellow-500/10 border-yellow-500/30 text-yellow-200"
+                        : "bg-red-500/10 border-red-500/30 text-red-200"
+                    }`}
+                  >
+                    <span className="text-base mt-0.5 shrink-0">
+                      {item.status === "PASS" ? "✅" : item.status === "WARNING" ? "⚠️" : "🚩"}
+                    </span>
+                    <div className="flex-1 space-y-0.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-white text-[11px]">{item.test}</span>
+                        <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded uppercase ${
+                          item.status === "PASS"
+                            ? "bg-emerald-500/20 text-emerald-400"
+                            : item.status === "WARNING"
+                            ? "bg-yellow-500/20 text-yellow-400"
+                            : "bg-red-500/20 text-red-400"
+                        }`}>
+                          {item.status === "PASS" ? "SUPERADO" : item.status === "WARNING" ? "PRECAUCIÓN" : "FALLÓ"}
+                        </span>
+                      </div>
+                      <p className="text-gray-300 text-[11px] leading-relaxed">{item.detail}</p>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Metric Cards Grid */}
+          {/* Metric Cards Grid - Fila 1: Básicas */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="p-5 rounded-2xl bg-surface border border-surface-border">
               <div className="text-xs font-semibold text-gray-400 uppercase">Saldo en Cuenta</div>
               <div className="text-2xl font-extrabold text-white mt-2">
                 ${data.accountValue.toLocaleString("en-US", { minimumFractionDigits: 2 })}
               </div>
-              <div className="text-[11px] text-gray-500 mt-1">Margen usado: ${data.totalMarginUsed.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
+              <div className="text-[11px] text-gray-500 mt-1">Margen usado: ${data.totalMarginUsed.toLocaleString("en-US", { maximumFractionDigits: 0 })} ({data.marginUtilizationPct}%)</div>
             </div>
 
             <div className="p-5 rounded-2xl bg-surface border border-surface-border">
@@ -572,15 +598,52 @@ export default function AnalyticsPage() {
               <div className={`text-2xl font-extrabold mt-2 ${parseFloat(data.maxDrawdownPct) < 5 ? "text-emerald-400" : "text-yellow-400"}`}>
                 -{data.maxDrawdownPct}%
               </div>
-              <div className="text-[11px] text-gray-500 mt-1">Control de riesgo estimado</div>
+              <div className="text-[11px] text-gray-500 mt-1">Max DD en dólares: ${parseFloat(data.maxDrawdownUSD || "0").toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
             </div>
 
             <div className="p-5 rounded-2xl bg-surface border border-surface-border">
               <div className="text-xs font-semibold text-gray-400 uppercase">Profit Factor</div>
               <div className="text-2xl font-extrabold text-blue-400 mt-2">
-                {data.profitFactor}
+                {data.profitFactor}x
               </div>
-              <div className="text-[11px] text-gray-500 mt-1">Ratio Beneficio / Pérdida</div>
+              <div className="text-[11px] text-gray-400 mt-1">
+                Ratio Win/Loss: <strong className="text-white">{data.winLossRatio}x</strong>
+              </div>
+            </div>
+          </div>
+
+          {/* Metric Cards Grid - Fila 2: Métricas Cuantitativas Avanzadas */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="p-5 rounded-2xl bg-surface border border-surface-border">
+              <div className="text-xs font-semibold text-gray-400 uppercase">Expectativa Matemática</div>
+              <div className="text-xl font-extrabold text-emerald-400 mt-2">
+                +${data.expectancyPerTrade || "0.00"} USD
+              </div>
+              <div className="text-[11px] text-gray-500 mt-1">Beneficio esperado por cada trade</div>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-surface border border-surface-border">
+              <div className="text-xs font-semibold text-gray-400 uppercase">Ratio de Sortino</div>
+              <div className="text-xl font-extrabold text-amber-400 mt-2">
+                {data.sortinoRatio || "N/A"}
+              </div>
+              <div className="text-[11px] text-gray-500 mt-1">Calidad ajustada a volatilidad a la baja</div>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-surface border border-surface-border">
+              <div className="text-xs font-semibold text-gray-400 uppercase">Rachas Consecutivas</div>
+              <div className="text-xl font-extrabold text-white mt-2">
+                <span className="text-emerald-400">{data.maxConsecutiveWins}W</span> / <span className="text-red-400">{data.maxConsecutiveLosses}L</span>
+              </div>
+              <div className="text-[11px] text-gray-500 mt-1">Racha máx victorias vs derrotas</div>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-surface border border-surface-border">
+              <div className="text-xs font-semibold text-gray-400 uppercase">Concentración Mayor Trade</div>
+              <div className="text-xl font-extrabold text-purple-400 mt-2">
+                {data.concentrationPct || "0"}%
+              </div>
+              <div className="text-[11px] text-gray-500 mt-1">Mayor acierto: +${parseFloat(data.maxWin || "0").toLocaleString("en-US", { maximumFractionDigits: 0 })} USD</div>
             </div>
           </div>
 
