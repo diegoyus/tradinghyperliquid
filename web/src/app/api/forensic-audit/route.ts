@@ -313,6 +313,8 @@ export async function POST(req: Request) {
       forensicVerdict = "ACEPTABLE_CON_PRECAUCIÓN";
     }
 
+    const passedFilter = forensicVerdict === "EXCELENTE" && forensicScore >= 7.0;
+
     return NextResponse.json({
       success: true,
       address: cleanAddress,
@@ -330,6 +332,7 @@ export async function POST(req: Request) {
       marginUsagePct: marginUsagePct.toFixed(1),
       forensicScore: forensicScore.toFixed(1),
       forensicVerdict,
+      passedFilter,
       anomalies,
       totalFills: allTrades.length,
       allTrades: allTrades, // Todos los movimientos para análisis exhaustivo

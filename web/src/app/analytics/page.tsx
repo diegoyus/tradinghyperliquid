@@ -35,14 +35,26 @@ export default function AnalyticsPage() {
   const [pageSize, setPageSize] = useState<number | "ALL">(50);
 
   // Cargar automáticamente las mejores carteras encontradas en Hyperliquid
-  const fetchDiscovered = async (filter: "consistent" | "monthly" | "whales" = "consistent") => {
+  const fetchDiscovered = async (filter: any = "all") => {
     setDiscoverLoading(true);
     setDiscoverFilter(filter);
     try {
       const res = await fetch(`/api/discover-traders?filter=${filter}`);
       const json = await res.json();
       if (json.success) {
-        setDiscoveredTraders(json.traders || []);
+        let list = json.traders || [];
+        try {
+          const stored = localStorage.getItem("verified_traders_override");
+          if (stored) {
+            const overrides = JSON.parse(stored);
+            const overrideMap = new Map(overrides.map((o: any) => [o.address.toLowerCase(), o]));
+            list = list.map((t: any) => {
+              const over = overrideMap.get(t.address.toLowerCase());
+              return over ? { ...t, ...over } : t;
+            });
+          }
+        } catch {}
+        setDiscoveredTraders(list);
         if (json.lastAudited) setLastAudited(json.lastAudited);
       }
     } catch (e) {
@@ -132,6 +144,49 @@ export default function AnalyticsPage() {
       const json = await res.json();
       if (json.success) {
         setForensicData(json);
+
+        // RECALIFICAR Y ACTUALIZAR TARJETA EN TIEMPO REAL
+        const isApproved = json.passedFilter !== undefined ? json.passedFilter : (json.forensicVerdict === "EXCELENTE" && parseFloat(json.forensicScore) >= 7.0);
+
+        setDiscoveredTraders((prev) => {
+          const updated = prev.map((t) => {
+            if (t.address.toLowerCase() === targetAddr.toLowerCase()) {
+              const failedAnomalies = (json.anomalies || []).filter((a: any) => a.status !== "PASS");
+              const anomalyNames = failedAnomalies.map((a: any) => a.test).join(", ");
+              
+              const newExplanation = isApproved
+                ? `⭐ APROBADO TRAS AUDITORÍA FORENSE: Puntuación calibrada a ${json.forensicScore}/10 con 0 anomalías críticas y $${parseFloat(json.expectancyPerTrade || "0").toFixed(0)} de expectativa/trade.`
+                : `❌ DESCARTADO TRAS AUDITORÍA FORENSE: Nota rebajada de ${t.score} a ${json.forensicScore}/10 por anomalías detectadas: ${anomalyNames || "riesgo excesivo"}.`;
+
+              return {
+                ...t,
+                score: json.forensicScore,
+                passedFilter: isApproved,
+                filterAuditReason: newExplanation,
+                anomalies: json.anomalies,
+                expectancyUSD: parseFloat(json.expectancyPerTrade || t.expectancyUSD || 0),
+                luckyTradePct: parseFloat(json.concentrationPct || t.luckyTradePct || 0),
+              };
+            }
+            return t;
+          });
+
+          // Persistir en localStorage para que el cambio de color se mantenga
+          try {
+            localStorage.setItem("verified_traders_override", JSON.stringify(updated));
+          } catch {}
+
+          return updated;
+        });
+
+        // Si es el trader actualmente seleccionado en la vista de detalle, actualizarlo también
+        if (data && data.address.toLowerCase() === targetAddr.toLowerCase()) {
+          setData((prev: any) => ({
+            ...prev,
+            score: json.forensicScore,
+            anomalies: json.anomalies,
+          }));
+        }
       }
     } catch (e) {
       console.error("Error en auditoría forense:", e);
