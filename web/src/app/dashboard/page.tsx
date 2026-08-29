@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { DollarSign, TrendingUp, Award, Activity, ArrowUpRight, ArrowDownRight, RefreshCw, UserCheck, Shield, ChevronRight, PieChart, Sliders } from "lucide-react";
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, Cell } from "recharts";
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, Cell, Legend } from "recharts";
 import Link from "next/link";
 import { getStoredProfile, resetProfile } from "@/lib/storage";
 import { UserProfile } from "@/lib/types";
@@ -18,8 +18,8 @@ export default function DashboardPage() {
   const [liveGlobalFloatingPnl, setLiveGlobalFloatingPnl] = useState(0);
   const [liveGlobalWins, setLiveGlobalWins] = useState(0);
   const [liveGlobalLosses, setLiveGlobalLosses] = useState(0);
-  const [liveEquityHistory, setLiveEquityHistory] = useState<{ time: string; balance: number }[]>([
-    { time: "Inicio", balance: 10000.0 }
+  const [liveEquityHistory, setLiveEquityHistory] = useState<any[]>([
+    { time: "Inicio", realized: 10000.0, equity: 10000.0 }
   ]);
 
   useEffect(() => {
@@ -113,8 +113,8 @@ export default function DashboardPage() {
                 }
               }
 
-              // Si se abrió antes del reinicio, la ignoramos completamente
-              if (openTimeMs > 0 && openTimeMs < resetTime) {
+              // Si se abrió antes del reinicio (o no tiene fill y hay un reinicio activo), la ignoramos completamente
+              if (resetTime > 0 && (openTimeMs === 0 || openTimeMs < resetTime)) {
                 continue;
               }
 
@@ -154,31 +154,26 @@ export default function DashboardPage() {
       setLiveGlobalWins(globalWins);
       setLiveGlobalLosses(globalLosses);
 
-      // Reconstruir la curva de capital cronológicamente
+      // Reconstruir la curva de capital cronológicamente con doble línea (realized y equity)
       allClosedTrades.sort((a, b) => a.timestamp - b.timestamp);
       let runningBal = profile.initial_balance;
-      const newHistory = [{ time: "Inicio", balance: runningBal }];
+      const newHistory = [{ time: "Inicio", realized: runningBal, equity: runningBal }];
 
       for (const t of allClosedTrades) {
         runningBal += t.pnl;
         newHistory.push({
           time: t.timeStr,
-          balance: parseFloat(runningBal.toFixed(2))
+          realized: parseFloat(runningBal.toFixed(2)),
+          equity: parseFloat(runningBal.toFixed(2))
         });
       }
 
       // Añadir valor flotante final
-      if (Math.abs(totalFloatingPnl) > 0.01) {
-        newHistory.push({
-          time: "Con Flotante",
-          balance: parseFloat((runningBal + totalFloatingPnl).toFixed(2))
-        });
-      } else {
-        newHistory.push({
-          time: "Actual",
-          balance: parseFloat(runningBal.toFixed(2))
-        });
-      }
+      newHistory.push({
+        time: "Actual",
+        realized: parseFloat(runningBal.toFixed(2)),
+        equity: parseFloat((runningBal + totalFloatingPnl).toFixed(2))
+      });
 
       setLiveEquityHistory(newHistory);
     };
@@ -462,10 +457,14 @@ export default function DashboardPage() {
         <div className="h-72 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={liveEquityHistory}>
-              <defs>
-                <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+               <defs>
+                <linearGradient id="realizedGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
                   <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                </linearGradient>
+                <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.2} />
+                  <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
@@ -479,12 +478,26 @@ export default function DashboardPage() {
               />
               <Tooltip
                 contentStyle={{ backgroundColor: "#111827", borderColor: "#374151", borderRadius: "12px" }}
-                formatter={(value: any) => [`$${Number(value).toLocaleString()} USD`, "Saldo"]}
+                formatter={(value: any, name: string) => [
+                  `$${Number(value).toLocaleString()} USD`,
+                  name === "realized" ? "Dinero Cerrado" : "Valor con Flotante"
+                ]}
+              />
+              <Legend verticalAlign="top" height={36} wrapperStyle={{ fontSize: '12px' }} />
+              <Area
+                type="monotone"
+                dataKey="realized"
+                name="realized"
+                stroke="#10b981"
+                strokeWidth={3}
+                fillOpacity={1}
+                fill="url(#realizedGradient)"
               />
               <Area
                 type="monotone"
-                dataKey="balance"
-                stroke="#10b981"
+                dataKey="equity"
+                name="equity"
+                stroke="#8b5cf6"
                 strokeWidth={3}
                 fillOpacity={1}
                 fill="url(#equityGradient)"
@@ -566,8 +579,8 @@ function LiveCopiedPositions({ traders, userBalance }: { traders: any[]; userBal
             ? parseInt(localStorage.getItem("hyperliquid_reset_timestamp") || "0")
             : 0;
 
-          // Si se abrió antes del reinicio, la ignoramos por completo
-          if (openTimeMs > 0 && openTimeMs < resetTime) {
+          // Si se abrió antes del reinicio (o no tiene fill y hay un reinicio activo), la ignoramos por completo
+          if (resetTime > 0 && (openTimeMs === 0 || openTimeMs < resetTime)) {
             continue;
           }
 
