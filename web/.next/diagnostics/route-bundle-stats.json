@@ -16,10 +16,10 @@
   },
   {
     "route": "/dashboard",
-    "firstLoadUncompressedJsBytes": 885839,
+    "firstLoadUncompressedJsBytes": 885938,
     "firstLoadChunkPaths": [
       ".next/static/chunks/1v28weday-aas.js",
-      ".next/static/chunks/2bp4sy3d1l5nm.js",
+      ".next/static/chunks/3d3qcrw6_qokf.js",
       ".next/static/chunks/3awt95qlpe5yp.js",
       ".next/static/chunks/3mc6dra1m0098.js",
       ".next/static/chunks/2i51e627rllld.js",
@@ -30,10 +30,10 @@
   },
   {
     "route": "/traders",
-    "firstLoadUncompressedJsBytes": 487993,
+    "firstLoadUncompressedJsBytes": 492108,
     "firstLoadChunkPaths": [
       ".next/static/chunks/1v28weday-aas.js",
-      ".next/static/chunks/1jy1-8w9-fv28.js",
+      ".next/static/chunks/0jra464fx__1u.js",
       ".next/static/chunks/3mc6dra1m0098.js",
       ".next/static/chunks/2i51e627rllld.js",
       ".next/static/chunks/3byuobrkyz9bj.js",

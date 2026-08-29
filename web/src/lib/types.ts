@@ -1,5 +1,6 @@
 export interface TraderConfig {
   name: string;
+  alias?: string;
   score?: string;
   address: string;
   allocation_pct: number;

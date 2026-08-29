@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Sliders, Shield, Star, CheckCircle2, AlertCircle, ShieldAlert, ChevronDown, ChevronUp, Zap, Gauge } from "lucide-react";
+import { Plus, Trash2, Sliders, Shield, Star, CheckCircle2, AlertCircle, ShieldAlert, ChevronDown, ChevronUp, Zap, Gauge, Share2, Sparkles } from "lucide-react";
 import { getStoredProfile, updateTradersConfig, updateGlobalRisk } from "@/lib/storage";
 import { TraderConfig, UserProfile } from "@/lib/types";
 
@@ -43,6 +43,59 @@ const SUGGESTED_TRADERS = [
     desc: "Tendencial en Solana y ecosistema con movimientos amplios.",
   },
 ];
+
+function getAiSuggestedAlias(trader: TraderConfig, currentTraders: TraderConfig[]): string {
+  const existingAliases = currentTraders.map(t => (t.alias || "").toLowerCase().trim()).filter(Boolean);
+  
+  // Lista de sugerencias por trader élite
+  const eliteSugerencias: Record<string, string[]> = {
+    "0x337afda118de433f5a8c8ad6d6ef48b76d027a06": [
+      "Franco Scalper", "Tirador de Alpha", "Halcón de Tendencias", "Sniper Quirúrgico", "Sombra Consistente"
+    ],
+    "0x613ead0ea5af374af0ccfc117ef116a8e8d133fe": [
+      "Sticky Momentum", "Centella Veloz", "Pegajoso Fiel", "Rayo Liquidador", "Guardián de Volatilidad"
+    ],
+    "0xb6db1b4dc6244f86e482d834739d949d799e4da5": [
+      "Macro Vision", "Estratega Global", "Giga Swing", "Titán Sintético", "Horizonte Alpha"
+    ],
+    "0xab7fb756330e3983e676f44c03dabda9120aa273": [
+      "Solana Master", "SOL Rider", "Cazador de SOL", "Mago de Altcoins", "Fénix de Solana"
+    ]
+  };
+
+  const cleanAddr = trader.address.toLowerCase().trim();
+  if (eliteSugerencias[cleanAddr]) {
+    const list = eliteSugerencias[cleanAddr];
+    for (const name of list) {
+      if (!existingAliases.includes(name.toLowerCase())) {
+        return name;
+      }
+    }
+  }
+
+  // Generador dinámico para traders customizados
+  const adjetivos = [
+    "Ágil", "Centinela", "Alfa", "Titán", "Giga", "Sutil", "Místico", "Magnate", "Nómada", "Veloz",
+    "Astuto", "Fiel", "Supremo", "Longevo", "Sigiloso", "Estelar", "Estable", "Robusto", "Consistente", "Poderoso"
+  ];
+  const sustantivos = [
+    "Ballena", "Tiburón", "Delfín", "Halcón", "Lobo", "Toro", "Fénix", "León", "Águila", "Leopardo",
+    "Grizzly", "Cobra", "Jaguar", "Zorro", "Puma", "Cóndor", "Pantera", "Búho", "Pegaso", "Dragón"
+  ];
+
+  // Hacer combinaciones aleatorias hasta encontrar una que no se repita
+  for (let i = 0; i < 200; i++) {
+    const adj = adjetivos[Math.floor(Math.random() * adjetivos.length)];
+    const sus = sustantivos[Math.floor(Math.random() * sustantivos.length)];
+    const aliasSugerido = `${sus} ${adj}`;
+    if (!existingAliases.includes(aliasSugerido.toLowerCase())) {
+      return aliasSugerido;
+    }
+  }
+
+  // Fallback
+  return `Copia ${trader.address.slice(0, 6)}`;
+}
 
 export default function TradersPage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -270,7 +323,9 @@ export default function TradersPage() {
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-white text-base">{t.name}</h3>
+                        <h3 className="font-bold text-white text-base">
+                          {t.alias ? `${t.alias} (${t.name})` : t.name}
+                        </h3>
                         {t.score && (
                           <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-primary/10 text-emerald-400 border border-primary/30">
                             ★ {t.score}
@@ -292,6 +347,20 @@ export default function TradersPage() {
                         <Sliders className="w-3.5 h-3.5 text-primary" />
                         <span>{isExpanded ? "Ocultar Ajustes de Riesgo" : "Ajustes de Riesgo"}</span>
                         {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(t.address);
+                          const shareText = `¡Mira este trader líder en Hyperliquid! Copio sus operaciones con mi alias: "${t.alias || t.name}"\nDirección: ${t.address}`;
+                          window.open(`https://t.me/share/url?url=${encodeURIComponent(t.address)}&text=${encodeURIComponent(shareText)}`, "_blank");
+                          alert("¡Dirección copiada al portapapeles y preparando enlace para compartir en Telegram!");
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-background hover:bg-gray-800 border border-surface-border text-xs text-gray-300 flex items-center gap-1.5 transition-colors"
+                        title="Copiar dirección y compartir en Telegram"
+                      >
+                        <Share2 className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Compartir</span>
                       </button>
                       <button
                         onClick={() => handleRemoveTrader(idx)}
@@ -351,6 +420,36 @@ export default function TradersPage() {
                             🚀 Agresivo (20x)
                           </button>
                         </div>
+                      </div>
+
+                      {/* Alias de Cartera */}
+                      <div className="pb-3 border-b border-surface-border space-y-2">
+                        <label className="text-xs font-semibold text-gray-400 block">
+                          Alias Personalizado de esta Cartera
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={t.alias || ""}
+                            onChange={(e) => handleUpdateTraderField(idx, "alias", e.target.value)}
+                            placeholder="Ej: Cirujano de SOL (Sin alias por defecto)"
+                            className="flex-1 max-w-md px-3.5 py-2 rounded-xl bg-background border border-surface-border text-white text-xs focus:outline-none focus:border-primary transition-all font-semibold"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const suggested = getAiSuggestedAlias(t, profile ? profile.traders : []);
+                              handleUpdateTraderField(idx, "alias", suggested);
+                            }}
+                            className="px-3.5 py-2 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 text-xs font-bold transition-all flex items-center gap-1.5"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-primary" />
+                            <span>Sugerir por IA</span>
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-gray-500">
+                          La IA sugerirá un alias único y estratégico basado en los patrones de trading de este líder o combinaciones creativas no repetidas.
+                        </p>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

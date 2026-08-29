@@ -373,7 +373,9 @@ export default function DashboardPage() {
               <div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-white text-sm">{item.name}</h3>
+                    <h3 className="font-bold text-white text-sm">
+                      {item.alias ? `${item.alias} (${item.name})` : item.name}
+                    </h3>
                     {item.score && (
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary/20 text-emerald-400 border border-primary/30">
                         {item.score}
@@ -597,7 +599,7 @@ function LiveCopiedPositions({ traders, userBalance }: { traders: any[]; userBal
           const myPnlPct = myMargin > 0 ? (myPnl / myMargin) * 100 : 0;
 
           allPositions.push({
-            traderName: t.name,
+            traderName: t.alias ? `${t.alias} (${t.name})` : t.name,
             coin,
             side: szi > 0 ? "LONG" : "SHORT",
             myLev,
@@ -630,7 +632,7 @@ function LiveCopiedPositions({ traders, userBalance }: { traders: any[]; userBal
             const d = f.time ? new Date(f.time) : new Date();
 
             allRecentTrades.push({
-              traderName: t.name,
+              traderName: t.alias ? `${t.alias} (${t.name})` : t.name,
               coin: f.coin || "Crypto",
               dir: f.dir || "—",
               myPnl,
