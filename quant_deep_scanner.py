@@ -1,7 +1,9 @@
 """
 quant_deep_scanner.py
 Motor de Auditoría Cuantitativa Profunda de Hyperliquid.
-Con control de ritmo (Rate Limiting), pre-filtrado inteligente y reintentos automáticos.
+Audita todas las carteras y clasifica:
+- APROBADOS (destacados en amarillo en la web) con su explicación detallada.
+- DESCARTADOS con el motivo exacto de descarte.
 """
 
 import json
@@ -31,7 +33,6 @@ def query_info_api(payload, max_retries=3):
     """Ejecuta una consulta a la API Info con reintentos y control de rate-limit."""
     for attempt in range(max_retries):
         try:
-            # Intentar con requests
             resp = requests.post(INFO_URL, json=payload, headers=HEADERS, timeout=12)
             if resp.status_code == 200:
                 return resp.json()
@@ -41,7 +42,6 @@ def query_info_api(payload, max_retries=3):
         except Exception:
             pass
 
-        # Fallback con curl
         try:
             cmd = ["curl", "-s", "-X", "POST", INFO_URL, "-H", "Content-Type: application/json", "-d", json.dumps(payload)]
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
@@ -85,8 +85,7 @@ def audit_trader_deep(address, max_fills=2000, min_balance=15000):
         return None
 
     try:
-        # Pausa suave para evitar saturar la IP
-        time.sleep(0.1)
+        time.sleep(0.08)
 
         # 1. Consultar estado actual (clearinghouseState)
         user_state = query_info_api({"type": "clearinghouseState", "user": addr})
@@ -96,25 +95,16 @@ def audit_trader_deep(address, max_fills=2000, min_balance=15000):
         account_value = float(user_state.get("marginSummary", {}).get("accountValue", 0))
         total_margin_used = float(user_state.get("marginSummary", {}).get("totalMarginUsed", 0))
 
-        if account_value < min_balance:
-            return None
-
         # AUDITORÍA ANTI-TRAMPAS DE PÉRDIDAS FLOTANTES (Anti-Bagholding)
         asset_positions = user_state.get("assetPositions", [])
         total_unrealized_pnl = sum(float(p.get("position", {}).get("unrealizedPnl", 0)) for p in asset_positions)
-
-        # Descartar si el trader oculta pérdidas abiertas superiores al 8% de su cuenta
-        if total_unrealized_pnl < 0 and abs(total_unrealized_pnl) > (account_value * 0.08):
-            return None
-
-        # Descartar si el margen usado es > 45% (sobreapalancamiento peligroso)
-        if account_value > 0 and (total_margin_used / account_value) > 0.45:
-            return None
+        floating_loss_pct = (total_unrealized_pnl / account_value * 100) if account_value > 0 else 0
+        margin_utilization_pct = (total_margin_used / account_value * 100) if account_value > 0 else 0
 
         # 2. Consultar historial de órdenes (fills)
         fills = query_info_api({"type": "userFills", "user": addr})
-        if not isinstance(fills, list) or len(fills) < 15:
-            return None
+        if not isinstance(fills, list):
+            fills = []
 
         fills = fills[:max_fills]
         now_ms = time.time() * 1000
@@ -141,9 +131,6 @@ def audit_trader_deep(address, max_fills=2000, min_balance=15000):
                     closed_7d.append(pnl)
 
         total_closed = len(closed_all)
-        if total_closed < 10:
-            return None
-
         wins = [p for p in closed_all if p > 0]
         losses = [p for p in closed_all if p < 0]
         win_rate = (len(wins) / total_closed) * 100 if total_closed > 0 else 0
@@ -151,10 +138,6 @@ def audit_trader_deep(address, max_fills=2000, min_balance=15000):
         gross_loss = abs(sum(losses))
         profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (99.0 if gross_profit > 0 else 0)
         net_pnl = sum(closed_all)
-
-        # Descartar cuentas perdedoras o con poco profit factor
-        if net_pnl <= 0 or profit_factor < 1.3 or win_rate < 60.0:
-            return None
 
         pnl_30d = sum(closed_30d)
         wins_30d = len([p for p in closed_30d if p > 0])
@@ -178,9 +161,6 @@ def audit_trader_deep(address, max_fills=2000, min_balance=15000):
             if dd > max_dd_pct:
                 max_dd_pct = dd
 
-        if max_dd_pct > 25.0:
-            return None
-
         # Puntuación Cuantitativa
         score = 5.0
         if win_rate >= 90: score += 2.2
@@ -198,14 +178,65 @@ def audit_trader_deep(address, max_fills=2000, min_balance=15000):
         if pnl_30d > 0 and pnl_7d >= 0: score += 0.5
         if account_value >= 50000: score += 0.3
 
-        score = round(min(max(score, 1.0), 9.9), 1)
+        # EVALUACIÓN DE FILTRO Y MOTIVO DETALLADO
+        passed_filter = True
+        reasons = []
+
+        if account_value < min_balance:
+            passed_filter = False
+            reasons.append(f"Saldo en cuenta (${account_value:,.0f}) por debajo del mínimo de ${min_balance:,.0f}.")
+
+        if total_unrealized_pnl < 0 and abs(total_unrealized_pnl) > (account_value * 0.08):
+            passed_filter = False
+            reasons.append(f"Pérdida flotante abierta peligrosa ({floating_loss_pct:.1f}% del capital). Riesgo de bagholding.")
+
+        if margin_utilization_pct > 45.0:
+            passed_filter = False
+            reasons.append(f"Alta utilización de margen ({margin_utilization_pct:.1f}%). Riesgo de sobreapalancamiento.")
+
+        if total_closed < 10:
+            passed_filter = False
+            reasons.append(f"Muestra estadística insuficiente (solo {total_closed} trades cerrados).")
+
+        if net_pnl <= 0:
+            passed_filter = False
+            reasons.append(f"PnL neto histórico negativo (-${abs(net_pnl):,.0f} USD).")
+
+        if profit_factor < 1.3 and gross_loss > 0:
+            passed_filter = False
+            reasons.append(f"Profit Factor bajo ({profit_factor:.2f}x). No compensa el riesgo asumido.")
+
+        if win_rate < 65.0:
+            passed_filter = False
+            reasons.append(f"Tasa de acierto ({win_rate:.1f}%) inferior al umbral mínimo del 65%.")
+
+        if max_dd_pct > 25.0:
+            passed_filter = False
+            reasons.append(f"Drawdown histórico elevado (-{max_dd_pct:.1f}%). Supera el límite del 25%.")
+
+        # Explicación detallada para la web
         top_assets = [k for k, _ in sorted(coin_counts.items(), key=lambda x: x[1], reverse=True)[:3]]
+        top_assets_str = ", ".join(top_assets) if top_assets else "Crypto"
+
+        if passed_filter:
+            audit_explanation = (
+                f"✅ APROBADO: Win Rate del {win_rate:.1f}% en {total_closed} trades, "
+                f"Profit Factor de {profit_factor:.2f}x, Drawdown controlado de -{max_dd_pct:.2f}%, "
+                f"0% de pérdidas flotantes ocultas y saldo activo de ${account_value:,.0f} USD en {top_assets_str}."
+            )
+        else:
+            audit_explanation = f"❌ DESCARTADO: {'; '.join(reasons)}"
+            score -= 2.5
+
+        score = round(min(max(score, 1.0), 9.9), 1)
         alias = f"Trader {addr[:6]} ({top_assets[0] if top_assets else 'Crypto'})"
 
         return {
             "address": addr,
             "name": alias,
             "score": str(score),
+            "passedFilter": passed_filter,
+            "filterAuditReason": audit_explanation,
             "accountValue": round(account_value, 2),
             "winRate": round(win_rate, 1),
             "profitFactor": round(profit_factor, 2),
@@ -219,8 +250,10 @@ def audit_trader_deep(address, max_fills=2000, min_balance=15000):
             "monthWinRate": round(wr_30d, 1),
             "weekPnl": round(pnl_7d, 2),
             "weekWinRate": round(wr_7d, 1),
-            "topAssets": ", ".join(top_assets),
-            "strategy": f"Operativa consistente en {', '.join(top_assets)}. Ratio B/P {profit_factor:.1f}x.",
+            "floatingLossPct": round(floating_loss_pct, 1),
+            "marginUtilizationPct": round(margin_utilization_pct, 1),
+            "topAssets": top_assets_str,
+            "strategy": f"Operativa en {top_assets_str}. Ratio B/P {profit_factor:.1f}x.",
         }
     except Exception:
         return None
@@ -231,7 +264,7 @@ def main():
     print("=" * 65)
 
     try:
-        cand_input = input("\n👉 ¿Cuántos candidatos pre-filtrados quieres auditar a fondo? [Por defecto: 50]: ").strip()
+        cand_input = input("\n👉 ¿Cuántos candidatos quieres auditar a fondo? [Por defecto: 50]: ").strip()
         max_candidates = int(cand_input) if cand_input else 50
     except ValueError:
         max_candidates = 50
@@ -258,36 +291,25 @@ def main():
         print("❌ No se pudo obtener el leaderboard.")
         return
 
-    # PRE-FILTRADO INTELIGENTE EN MEMORIA SOBRE LOS 43.000 TRADERS
-    print(f"🔎 Filtrando los {len(rows)} traders para seleccionar los {max_candidates} mejores candidatos...")
+    print(f"🔎 Pre-filtrando candidatos de los {len(rows)} traders de Hyperliquid...")
     candidates = []
     for r in rows:
         addr = r.get("ethAddress")
         val = float(r.get("accountValue", 0))
         if not addr or addr.lower() in IGNORED_ADDRESSES:
             continue
-
-        if val < min_balance or val > 50000000:
+        if val < 5000 or val > 50000000:
             continue
+        candidates.append(addr)
+        if len(candidates) >= max_candidates:
+            break
 
-        perf_map = dict(r.get("windowPerformances", []))
-        m_perf = perf_map.get("month", {})
-        m_pnl = float(m_perf.get("pnl", 0))
-        m_roi = float(m_perf.get("roi", 0))
-
-        # Solo candidatos que ya demuestran rentabilidad positiva en el exchange
-        if m_pnl > 0 and m_roi > 0:
-            candidates.append(addr)
-            if len(candidates) >= max_candidates:
-                break
-
-    print(f"✅ Seleccionados {len(candidates)} candidatos de alta probabilidad para auditoría on-chain profunda.")
-    print(f"⏳ Analizando órdenes históricas y comprobando pérdidas flotantes...")
+    print(f"✅ Seleccionados {len(candidates)} candidatos para auditoría on-chain completa.")
+    print(f"⏳ Analizando órdenes históricas, drawdown y pérdidas flotantes...")
 
     start_time = time.time()
-    verified = []
+    audited_traders = []
 
-    # Usar 4 workers con ritmo controlado para evitar saturación de API
     with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {executor.submit(audit_trader_deep, addr, max_fills, min_balance): addr for addr in candidates}
         completed = 0
@@ -295,13 +317,16 @@ def main():
             completed += 1
             res = future.result()
             if res:
-                verified.append(res)
-                print(f"  ⭐ [{completed}/{len(candidates)}] Verificado: {res['address'][:10]}... | Nota: {res['score']}/10 | WR: {res['winRate']}% | DD: -{res['maxDrawdownPct']}% | PnL: +${res['netPnlTotal']:,.0f}")
+                audited_traders.append(res)
+                if res["passedFilter"]:
+                    print(f"  ⭐ [APROBADO] {res['address'][:10]}... | Nota: {res['score']}/10 | WR: {res['winRate']}% | DD: -{res['maxDrawdownPct']}% | PnL: +${res['netPnlTotal']:,.0f}")
+                else:
+                    print(f"  ⚠️ [DESCARTADO] {res['address'][:10]}... | {res['filterAuditReason']}")
             else:
                 if completed % 10 == 0:
                     print(f"  ⏳ Progreso: {completed}/{len(candidates)} cuentas auditadas...")
 
-    # Cargar base de datos existente para fusionar y no perder traders ya verificados
+    # Cargar base de datos existente para fusionar sin perder datos
     existing_traders = []
     try:
         if os.path.exists(OUTPUT_FILE):
@@ -311,28 +336,31 @@ def main():
     except Exception:
         pass
 
-    # Fusionar sin duplicados
-    seen_addrs = {t["address"].lower() for t in verified}
+    seen_addrs = {t["address"].lower() for t in audited_traders}
     for old_t in existing_traders:
-        if old_t["address"].lower() not in seen_addrs and float(old_t.get("score", 0)) >= 8.0:
-            verified.append(old_t)
+        if old_t["address"].lower() not in seen_addrs:
+            audited_traders.append(old_t)
             seen_addrs.add(old_t["address"].lower())
 
-    verified.sort(key=lambda x: (float(x.get("score", 0)), x.get("profitFactor", 0), x.get("netPnlTotal", 0)), reverse=True)
+    # Ordenar: primero los APROBADOS (por score y profit factor), luego los descartados
+    audited_traders.sort(key=lambda x: (1 if x.get("passedFilter", False) else 0, float(x.get("score", 0)), x.get("profitFactor", 0)), reverse=True)
 
+    passed_count = len([t for t in audited_traders if t.get("passedFilter", False)])
+    failed_count = len(audited_traders) - passed_count
     elapsed = time.time() - start_time
     timestamp_now = time.strftime("%d/%m/%Y %H:%M:%S")
 
     result_dataset = {
         "lastAudited": timestamp_now,
-        "totalScanned": len(candidates),
-        "totalVerified": len(verified),
+        "totalScanned": len(audited_traders),
+        "totalPassed": passed_count,
+        "totalFailed": failed_count,
         "config": {
             "maxCandidates": max_candidates,
             "maxFillsPerTrader": max_fills,
             "minBalanceUSD": min_balance,
         },
-        "traders": verified,
+        "traders": audited_traders,
     }
 
     os.makedirs("web/src/data", exist_ok=True)
@@ -343,15 +371,16 @@ def main():
         json.dump(result_dataset, f, indent=2)
 
     print(f"\n🏆 ¡Auditoría Finalizada en {elapsed:.1f}s!")
-    print(f"📊 {len(verified)} traders de élite verificados en la base de datos.")
+    print(f"🌟 {len(audited_traders)} cuentas analizadas en total.")
+    print(f"⭐ {passed_count} Traders de Élite APROBADOS (se mostrarán en Amarillo).")
+    print(f"⚠️ {failed_count} Cuentas Descartadas por riesgo o inconsistencia.")
     print(f"🕒 Fecha y Hora registrada: {timestamp_now}")
     print(f"💾 Guardado en: {OUTPUT_FILE}")
 
-    # Sincronización
-    push_input = input("\n🚀 ¿Quieres sincronizar y publicar este nuevo ranking en tu web en producción? (S/n): ").strip().lower()
+    push_input = input("\n🚀 ¿Quieres sincronizar y publicar este ranking en tu web en producción? (S/n): ").strip().lower()
     if push_input != "n":
         print("📦 Empaquetando y subiendo a Vercel y GitHub...")
-        subprocess.run(["DEVELOPER_DIR=/Library/Developer/CommandLineTools git add web/src/data/verified_traders.json && DEVELOPER_DIR=/Library/Developer/CommandLineTools git commit -m 'Update verified quant ranking' && DEVELOPER_DIR=/Library/Developer/CommandLineTools git push origin main && cd web && npx vercel build --prod --yes && npx vercel deploy --prebuilt --prod --yes"], shell=True)
+        subprocess.run(["DEVELOPER_DIR=/Library/Developer/CommandLineTools git add web/src/data/verified_traders.json && DEVELOPER_DIR=/Library/Developer/CommandLineTools git commit -m 'Update all audited traders with explanations' && DEVELOPER_DIR=/Library/Developer/CommandLineTools git push origin main && cd web && npx vercel build --prod --yes && npx vercel deploy --prebuilt --prod --yes"], shell=True)
         print("🎉 ¡Ranking actualizado en tu web en vivo con la nueva fecha y hora!")
 
 if __name__ == "__main__":
