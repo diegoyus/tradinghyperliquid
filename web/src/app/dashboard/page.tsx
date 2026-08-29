@@ -15,6 +15,7 @@ export default function DashboardPage() {
   // Estado en vivo desde Hyperliquid
   const [liveStats, setLiveStats] = useState<Record<string, any>>({});
   const [liveGlobalPnl, setLiveGlobalPnl] = useState(0);
+  const [liveGlobalFloatingPnl, setLiveGlobalFloatingPnl] = useState(0);
   const [liveGlobalWins, setLiveGlobalWins] = useState(0);
   const [liveGlobalLosses, setLiveGlobalLosses] = useState(0);
   const [liveEquityHistory, setLiveEquityHistory] = useState<{ time: string; balance: number }[]>([
@@ -149,6 +150,7 @@ export default function DashboardPage() {
 
       setLiveStats(perTrader);
       setLiveGlobalPnl(globalPnl);
+      setLiveGlobalFloatingPnl(totalFloatingPnl);
       setLiveGlobalWins(globalWins);
       setLiveGlobalLosses(globalLosses);
 
@@ -272,37 +274,57 @@ export default function DashboardPage() {
 
       {/* Metric Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        {/* CARD 1: Dinero Cerrado */}
         <div className="p-6 rounded-2xl bg-surface border border-surface-border relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Saldo Virtual</span>
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Dinero Cerrado</span>
             <div className="p-2 rounded-xl bg-primary/10 text-primary">
               <DollarSign className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-3xl font-extrabold text-white mt-4">
+          <div className="text-3xl font-extrabold text-white mt-4 font-mono">
             ${(profile.initial_balance + liveGlobalPnl).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className="text-xs text-gray-400 mt-2">
-            Inicial: ${profile.initial_balance.toLocaleString("en-US")} USD
+            PnL Realizado: <strong className={liveGlobalPnl >= 0 ? "text-emerald-400" : "text-red-400"}>
+              {liveGlobalPnl >= 0 ? "+" : ""}${liveGlobalPnl.toFixed(2)}
+            </strong>
           </div>
         </div>
 
+        {/* CARD 2: Dinero Flotante (PnL Abierto) */}
         <div className="p-6 rounded-2xl bg-surface border border-surface-border relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">PnL Neto Realizado</span>
-            <div className={`p-2 rounded-xl ${liveGlobalPnl >= 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Dinero Flotante</span>
+            <div className={`p-2 rounded-xl ${liveGlobalFloatingPnl >= 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>
               <TrendingUp className="w-5 h-5" />
             </div>
           </div>
-          <div className={`text-3xl font-extrabold mt-4 ${liveGlobalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-            {liveGlobalPnl >= 0 ? "+" : ""}${liveGlobalPnl.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+          <div className={`text-3xl font-extrabold mt-4 font-mono ${liveGlobalFloatingPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+            {liveGlobalFloatingPnl >= 0 ? "+" : ""}${liveGlobalFloatingPnl.toLocaleString("en-US", { minimumFractionDigits: 2 })}
           </div>
-          <div className={`flex items-center gap-1 text-xs mt-2 ${liveGlobalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-            {liveGlobalPnl >= 0 ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
-            <span>{liveGlobalPnl >= 0 ? "+" : ""}{pnlPercent}% de rentabilidad</span>
+          <div className="text-xs text-gray-400 mt-2">
+            PnL de posiciones abiertas actualmente
           </div>
         </div>
 
+        {/* CARD 3: Valor Total (Cerrado + Flotante) */}
+        <div className="p-6 rounded-2xl bg-surface border border-surface-border relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Valor Total (Cuenta)</span>
+            <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400">
+              <Activity className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="text-3xl font-extrabold text-white mt-4 font-mono">
+            ${(profile.initial_balance + liveGlobalPnl + liveGlobalFloatingPnl).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <div className="text-xs text-gray-400 mt-2">
+            Capital inicial: ${profile.initial_balance.toLocaleString("en-US")} USD
+          </div>
+        </div>
+
+        {/* CARD 4: Tasa de Acierto (WinRate) */}
         <div className="p-6 rounded-2xl bg-surface border border-surface-border relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Tasa de Acierto (WinRate)</span>
@@ -310,7 +332,7 @@ export default function DashboardPage() {
               <Award className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-3xl font-extrabold text-white mt-4">
+          <div className="text-3xl font-extrabold text-white mt-4 font-mono">
             {winRate}%
           </div>
           <div className="text-xs text-gray-400 mt-2">
