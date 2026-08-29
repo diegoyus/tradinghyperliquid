@@ -1,8 +1,8 @@
 {
-  "lastAudited": "29/08/2026 20:39:36",
-  "totalScanned": 18250,
+  "lastAudited": "29/08/2026 20:46:26",
+  "totalScanned": 18500,
   "totalPassed": 39,
-  "totalFailed": 18211,
+  "totalFailed": 18461,
   "mode": "100%_FULL_CENSUS_ONCHAIN_SQLITE",
   "traders": [
     {

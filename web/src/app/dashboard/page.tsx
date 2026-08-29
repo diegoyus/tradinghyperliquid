@@ -12,33 +12,123 @@ export default function DashboardPage() {
   const [mounted, setMounted] = useState(false);
   const [selectedTraderFilter, setSelectedTraderFilter] = useState<string>("ALL");
 
+  // Estado en vivo desde Hyperliquid
+  const [liveStats, setLiveStats] = useState<Record<string, any>>({});
+  const [liveGlobalPnl, setLiveGlobalPnl] = useState(0);
+  const [liveGlobalWins, setLiveGlobalWins] = useState(0);
+  const [liveGlobalLosses, setLiveGlobalLosses] = useState(0);
+
   useEffect(() => {
     setMounted(true);
     setProfile(getStoredProfile());
   }, []);
 
-  // Calcular métricas por cada trader copiado
+  // Fetch real stats from Hyperliquid on mount
+  useEffect(() => {
+    if (!profile) return;
+    const HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info";
+
+    const fetchLiveStats = async () => {
+      const perTrader: Record<string, any> = {};
+      let globalPnl = 0;
+      let globalWins = 0;
+      let globalLosses = 0;
+
+      for (const t of profile.traders) {
+        try {
+          const [stRes, fillsRes] = await Promise.all([
+            fetch(HYPERLIQUID_INFO_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type: "clearinghouseState", user: t.address }),
+            }),
+            fetch(HYPERLIQUID_INFO_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type: "userFills", user: t.address }),
+            }),
+          ]);
+
+          if (!stRes.ok) continue;
+          const stData = await stRes.json();
+          const fills = fillsRes.ok ? await fillsRes.json() : [];
+          const traderAccountValue = parseFloat(stData?.marginSummary?.accountValue || "100000");
+          const userCapital = profile.cash_balance * (t.allocation_pct / 100);
+
+          // Contar trades cerrados y calcular PnL proporcional
+          const closedFills = Array.isArray(fills)
+            ? fills.filter((f: any) => parseFloat(f.closedPnl || "0") !== 0)
+            : [];
+
+          let traderPnl = 0;
+          let wins = 0;
+          let losses = 0;
+          const openPositions: any[] = [];
+
+          for (const f of closedFills) {
+            const rawPnl = parseFloat(f.closedPnl || "0");
+            const myPnl = traderAccountValue > 0 ? (rawPnl / traderAccountValue) * userCapital : 0;
+            traderPnl += myPnl;
+            if (myPnl > 0) wins++;
+            else if (myPnl < 0) losses++;
+          }
+
+          // Posiciones abiertas
+          const assetPositions = stData?.assetPositions || [];
+          for (const p of assetPositions) {
+            const pos = p.position || {};
+            const szi = parseFloat(pos.szi || "0");
+            if (szi !== 0) {
+              openPositions.push({
+                coin: pos.coin || "Crypto",
+                side: szi > 0 ? "LONG" : "SHORT",
+                leverage: pos.leverage?.value || 10,
+              });
+            }
+          }
+
+          const totalTrades = wins + losses;
+          const winRate = totalTrades > 0 ? ((wins / totalTrades) * 100).toFixed(1) : "0.0";
+
+          perTrader[t.address.toLowerCase()] = {
+            totalPnl: traderPnl,
+            wins,
+            losses,
+            totalTrades,
+            winRate,
+            openPositions,
+          };
+
+          globalPnl += traderPnl;
+          globalWins += wins;
+          globalLosses += losses;
+        } catch {}
+      }
+
+      setLiveStats(perTrader);
+      setLiveGlobalPnl(globalPnl);
+      setLiveGlobalWins(globalWins);
+      setLiveGlobalLosses(globalLosses);
+    };
+
+    fetchLiveStats();
+  }, [profile]);
+
+  // Calcular métricas por cada trader copiado (CON DATOS EN VIVO)
   const copiedTradersStats = useMemo(() => {
     if (!profile) return [];
 
     return profile.traders.map((t) => {
-      // Filtrar trades cerrados de este trader
-      const traderTrades = profile.trade_history.filter(
-        (th) => th.trader.toLowerCase().includes(t.name.toLowerCase()) || t.name.toLowerCase().includes(th.trader.toLowerCase())
-      );
+      const live = liveStats[t.address.toLowerCase()];
+      const allocatedCapital = profile.cash_balance * (t.allocation_pct / 100);
 
-      const wins = traderTrades.filter((th) => (th.pnl || 0) > 0).length;
-      const losses = traderTrades.filter((th) => (th.pnl || 0) < 0).length;
-      const totalTrades = traderTrades.length;
-      const totalPnl = traderTrades.reduce((acc, th) => acc + (th.pnl || 0), 0);
-      const allocatedCapital = (profile.cash_balance * (t.allocation_pct / 100));
+      const totalPnl = live?.totalPnl || 0;
+      const wins = live?.wins || 0;
+      const losses = live?.losses || 0;
+      const totalTrades = live?.totalTrades || 0;
+      const winRate = live?.winRate || "0.0";
       const roiPct = allocatedCapital > 0 ? ((totalPnl / allocatedCapital) * 100).toFixed(1) : "0.0";
-      const winRate = totalTrades > 0 ? ((wins / totalTrades) * 100).toFixed(1) : "100.0";
-
-      // Buscar posiciones abiertas de este trader
-      const activePositions = Object.values(profile.positions || {}).filter(
-        (p) => p.trader_addr.toLowerCase() === t.address.toLowerCase() || p.trader_name.toLowerCase().includes(t.name.toLowerCase())
-      );
+      const activePositions = live?.openPositions || [];
 
       return {
         ...t,
@@ -52,7 +142,7 @@ export default function DashboardPage() {
         activePositions,
       };
     });
-  }, [profile]);
+  }, [profile, liveStats]);
 
   if (!mounted || !profile) {
     return (
@@ -62,12 +152,11 @@ export default function DashboardPage() {
     );
   }
 
-  const pnlPercent = ((profile.realized_pnl / profile.initial_balance) * 100).toFixed(2);
-  const winRate = profile.stats.total_trades > 0
-    ? ((profile.stats.winning_trades / profile.stats.total_trades) * 100).toFixed(1)
+  const totalGlobalTrades = liveGlobalWins + liveGlobalLosses;
+  const pnlPercent = ((liveGlobalPnl / profile.initial_balance) * 100).toFixed(2);
+  const winRate = totalGlobalTrades > 0
+    ? ((liveGlobalWins / totalGlobalTrades) * 100).toFixed(1)
     : "0.0";
-
-  const openPositionsList = Object.entries(profile.positions || {});
 
   // Historial filtrado por trader
   const filteredHistory = profile.trade_history.filter((trade) => {
@@ -121,7 +210,7 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="text-3xl font-extrabold text-white mt-4">
-            ${profile.cash_balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            ${(profile.initial_balance + liveGlobalPnl).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className="text-xs text-gray-400 mt-2">
             Inicial: ${profile.initial_balance.toLocaleString("en-US")} USD
@@ -131,16 +220,16 @@ export default function DashboardPage() {
         <div className="p-6 rounded-2xl bg-surface border border-surface-border relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">PnL Neto Realizado</span>
-            <div className={`p-2 rounded-xl ${profile.realized_pnl >= 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>
+            <div className={`p-2 rounded-xl ${liveGlobalPnl >= 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>
               <TrendingUp className="w-5 h-5" />
             </div>
           </div>
-          <div className={`text-3xl font-extrabold mt-4 ${profile.realized_pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-            {profile.realized_pnl >= 0 ? "+" : ""}${profile.realized_pnl.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+          <div className={`text-3xl font-extrabold mt-4 ${liveGlobalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+            {liveGlobalPnl >= 0 ? "+" : ""}${liveGlobalPnl.toLocaleString("en-US", { minimumFractionDigits: 2 })}
           </div>
-          <div className="flex items-center gap-1 text-xs text-emerald-400 mt-2">
-            <ArrowUpRight className="w-3.5 h-3.5" />
-            <span>+{pnlPercent}% de rentabilidad</span>
+          <div className={`flex items-center gap-1 text-xs mt-2 ${liveGlobalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+            {liveGlobalPnl >= 0 ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
+            <span>{liveGlobalPnl >= 0 ? "+" : ""}{pnlPercent}% de rentabilidad</span>
           </div>
         </div>
 
@@ -155,7 +244,7 @@ export default function DashboardPage() {
             {winRate}%
           </div>
           <div className="text-xs text-gray-400 mt-2">
-            ✅ {profile.stats.winning_trades} Ganados | ❌ {profile.stats.losing_trades} Perdidos
+            ✅ {liveGlobalWins} Ganados | ❌ {liveGlobalLosses} Perdidos
           </div>
         </div>
 
@@ -220,8 +309,8 @@ export default function DashboardPage() {
                   </div>
                   <div>
                     <span className="text-[10px] text-gray-400 block">PnL Generado</span>
-                    <span className="font-bold text-emerald-400 font-mono">
-                      +${item.totalPnl.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                    <span className={`font-bold font-mono ${item.totalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                      {item.totalPnl >= 0 ? "+" : ""}${item.totalPnl.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
                     </span>
                   </div>
                   <div>
@@ -317,74 +406,6 @@ export default function DashboardPage() {
       <div className="space-y-8">
         {/* POSICIONES ABIERTAS EN VIVO (consulta real a Hyperliquid) */}
         <LiveCopiedPositions traders={profile.traders} userBalance={profile.cash_balance} />
-
-        {/* Closed Trades History with Filter by Trader */}
-        <div className="p-6 rounded-2xl bg-surface border border-surface-border space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <h2 className="text-lg font-bold text-white">Historial de Operaciones</h2>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-gray-400">Filtrar:</span>
-              <select
-                value={selectedTraderFilter}
-                onChange={(e) => setSelectedTraderFilter(e.target.value)}
-                className="px-2.5 py-1 rounded-lg bg-background border border-surface-border text-white text-xs focus:outline-none focus:border-primary"
-              >
-                <option value="ALL">Todos los Traders</option>
-                {profile.traders.map((t, idx) => (
-                  <option key={idx} value={t.name}>{t.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
-            {filteredHistory.length === 0 ? (
-              <div className="py-12 text-center text-gray-500 text-xs">
-                No hay operaciones registradas para este filtro.
-              </div>
-            ) : (
-              filteredHistory.map((trade, idx) => (
-                <div
-                  key={idx}
-                  className="p-3.5 rounded-xl bg-background/60 border border-surface-border flex items-center justify-between hover:border-gray-700 transition-colors"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div
-                      className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                        (trade.pnl || 0) >= 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
-                      }`}
-                    >
-                      {(trade.pnl || 0) >= 0 ? (
-                        <ArrowUpRight className="w-4 h-4" />
-                      ) : (
-                        <ArrowDownRight className="w-4 h-4" />
-                      )}
-                    </div>
-                    <div>
-                      <div className="font-bold text-sm text-white">
-                        {trade.coin} • <span className="text-xs font-normal text-gray-400">{trade.trader}</span>
-                      </div>
-                      <div className="text-[11px] text-gray-500">{trade.time} • {trade.dir}</div>
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <div
-                      className={`font-bold text-sm font-mono ${
-                        (trade.pnl || 0) >= 0 ? "text-emerald-400" : "text-red-400"
-                      }`}
-                    >
-                      {(trade.pnl || 0) >= 0 ? "+" : ""}${trade.pnl?.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                    </div>
-                    <div className="text-[11px] text-gray-500 font-mono">
-                      Saldo: ${trade.balance_after.toLocaleString("en-US", { maximumFractionDigits: 0 })}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -398,6 +419,7 @@ function LiveCopiedPositions({ traders, userBalance }: { traders: any[]; userBal
   const [recentTrades, setRecentTrades] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState("");
+  const [filterTrader, setFilterTrader] = useState("ALL");
 
   const fetchLivePositions = async () => {
     setLoading(true);
@@ -593,30 +615,60 @@ function LiveCopiedPositions({ traders, userBalance }: { traders: any[]; userBal
       </div>
 
       {/* HISTORIAL DE TRADES CERRADOS RECIENTES DE LOS TRADERS */}
-      {recentTrades.length > 0 && (
-        <div className="p-6 rounded-2xl bg-surface border border-surface-border space-y-4">
-          <h2 className="text-lg font-bold text-white">📜 Historial Reciente de Operaciones Cerradas (Copy Estimado)</h2>
-          <p className="text-[11px] text-gray-400 -mt-2">Últimos trades cerrados por los traders de tu cesta, con el PnL estimado según tu asignación de capital.</p>
-          <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-            {recentTrades.map((trade, idx) => (
-              <div key={idx} className="p-3 rounded-xl bg-background/60 border border-surface-border flex items-center justify-between hover:border-gray-700 transition-colors">
-                <div className="flex items-center space-x-3">
-                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${trade.myPnl >= 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>
-                    {trade.myPnl >= 0 ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
-                  </div>
-                  <div>
-                    <div className="font-bold text-sm text-white">{trade.coin} <span className="text-xs font-normal text-gray-400">• {trade.traderName}</span></div>
-                    <div className="text-[10px] text-gray-500">{trade.time} • {trade.dir}</div>
-                  </div>
-                </div>
-                <div className={`font-bold text-sm font-mono ${trade.myPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                  {trade.myPnl >= 0 ? "+" : ""}${trade.myPnl.toFixed(2)}
-                </div>
+      {recentTrades.length > 0 && (() => {
+        const filteredRecentTrades = recentTrades.filter(
+          (t) => filterTrader === "ALL" || t.traderName.toLowerCase() === filterTrader.toLowerCase()
+        );
+
+        return (
+          <div className="p-6 rounded-2xl bg-surface border border-surface-border space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-bold text-white">📜 Historial Reciente de Operaciones Cerradas (Copy Estimado)</h2>
+                <p className="text-[11px] text-gray-400 mt-0.5">Últimos trades cerrados por los traders de tu cesta, con el PnL estimado según tu asignación de capital.</p>
               </div>
-            ))}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-gray-400">Filtrar:</span>
+                <select
+                  value={filterTrader}
+                  onChange={(e) => setFilterTrader(e.target.value)}
+                  className="px-2.5 py-1 rounded-lg bg-background border border-surface-border text-white text-xs focus:outline-none focus:border-primary"
+                >
+                  <option value="ALL">Todos los Traders</option>
+                  {traders.map((t, idx) => (
+                    <option key={idx} value={t.name}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+              {filteredRecentTrades.length === 0 ? (
+                <div className="py-12 text-center text-gray-500 text-xs">
+                  No hay operaciones registradas para este filtro.
+                </div>
+              ) : (
+                filteredRecentTrades.map((trade, idx) => (
+                  <div key={idx} className="p-3 rounded-xl bg-background/60 border border-surface-border flex items-center justify-between hover:border-gray-700 transition-colors">
+                    <div className="flex items-center space-x-3">
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${trade.myPnl >= 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>
+                        {trade.myPnl >= 0 ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
+                      </div>
+                      <div>
+                        <div className="font-bold text-sm text-white">{trade.coin} <span className="text-xs font-normal text-gray-400">• {trade.traderName}</span></div>
+                        <div className="text-[10px] text-gray-500">{trade.time} • {trade.dir}</div>
+                      </div>
+                    </div>
+                    <div className={`font-bold text-sm font-mono ${trade.myPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                      {trade.myPnl >= 0 ? "+" : ""}${trade.myPnl.toFixed(2)}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </>
   );
 }
