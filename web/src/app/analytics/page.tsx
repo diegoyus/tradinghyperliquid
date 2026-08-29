@@ -15,9 +15,14 @@ export default function AnalyticsPage() {
   // Estados del Explorador Automático del Leaderboard
   const [discoveredTraders, setDiscoveredTraders] = useState<any[]>([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
-  const [discoverFilter, setDiscoverFilter] = useState<"consistent" | "monthly" | "whales">("consistent");
+  const [discoverFilter, setDiscoverFilter] = useState<"consistent" | "monthly" | "whales" | "all" | "passed" | "rejected">("all");
   const [lastAudited, setLastAudited] = useState<string>("");
   const [visibleDiscoverCount, setVisibleDiscoverCount] = useState<number>(12);
+
+  // Estados de Auditoría Forense y Detección de Anomalías
+  const [forensicModalAddr, setForensicModalAddr] = useState<string | null>(null);
+  const [forensicLoading, setForensicLoading] = useState(false);
+  const [forensicData, setForensicData] = useState<any>(null);
 
   // Estados de filtros de trades
   const [selectedCoin, setSelectedCoin] = useState<string>("ALL");
@@ -112,6 +117,27 @@ export default function AnalyticsPage() {
     updateTradersConfig([...profile.traders, newTrader]);
     setAddedSuccess(true);
     setTimeout(() => setAddedSuccess(false), 2500);
+  };
+
+  const handleForensicAudit = async (targetAddr: string) => {
+    setForensicModalAddr(targetAddr);
+    setForensicLoading(true);
+    setForensicData(null);
+    try {
+      const res = await fetch("/api/forensic-audit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: targetAddr }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setForensicData(json);
+      }
+    } catch (e) {
+      console.error("Error en auditoría forense:", e);
+    } finally {
+      setForensicLoading(false);
+    }
   };
 
   // Lista única de monedas operadas
@@ -360,10 +386,17 @@ export default function AnalyticsPage() {
                       <span>Auditar a Fondo</span>
                       <ChevronRight className="w-3.5 h-3.5 text-primary" />
                     </button>
+                    <button
+                      onClick={() => handleForensicAudit(trader.address)}
+                      className="py-2 px-3 rounded-xl bg-surface hover:bg-gray-800 border border-amber-400/40 text-amber-300 hover:text-amber-200 text-xs font-semibold flex items-center gap-1 transition-colors"
+                      title="Auditoría Forense Avanzada y Detección de Anomalías"
+                    >
+                      <span>🔬 Forense</span>
+                    </button>
                     {trader.passedFilter ? (
                       <button
                         onClick={() => handleAddToBasket(trader)}
-                        className="py-2 px-4 rounded-xl bg-amber-400 hover:bg-amber-300 text-black text-xs font-extrabold transition-all flex items-center gap-1 shadow-md shadow-amber-400/20"
+                        className="py-2 px-3.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-black text-xs font-extrabold transition-all flex items-center gap-1 shadow-md shadow-amber-400/20"
                         title="Añadir a mi cesta de réplica"
                       >
                         <Plus className="w-3.5 h-3.5" /> Copiar
@@ -885,6 +918,158 @@ export default function AnalyticsPage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Auditoría Forense y Re-puntuación */}
+      {forensicModalAddr && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-surface border border-amber-400/40 rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 sm:p-8 space-y-6 shadow-2xl shadow-amber-500/10 animate-fadeIn">
+            {/* Header Modal */}
+            <div className="flex items-start justify-between gap-4 border-b border-surface-border pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xl font-extrabold text-white flex items-center gap-2">
+                    🔬 Auditoría Forense & Detección de Anomalías
+                  </span>
+                </div>
+                <span className="font-mono text-xs text-amber-300 block mt-1">
+                  Billetera: {forensicModalAddr}
+                </span>
+              </div>
+              <button
+                onClick={() => setForensicModalAddr(null)}
+                className="p-2 rounded-xl bg-background hover:bg-gray-800 border border-surface-border text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {forensicLoading ? (
+              <div className="py-16 text-center text-gray-400 text-sm flex flex-col items-center justify-center gap-3">
+                <RefreshCw className="w-8 h-8 animate-spin text-amber-400" />
+                <span>Ejecutando batería de tests forenses sobre el historial on-chain...</span>
+                <span className="text-xs text-gray-500">Comprobando concentración de beneficios, patrones martingala y pérdidas abiertas.</span>
+              </div>
+            ) : forensicData ? (
+              <div className="space-y-6">
+                {/* Re-Puntuación Forense Banner */}
+                <div className={`p-5 rounded-2xl border flex flex-col sm:flex-row items-center justify-between gap-4 ${
+                  forensicData.forensicVerdict === "EXCELENTE"
+                    ? "bg-gradient-to-r from-amber-500/20 to-emerald-500/10 border-amber-400/60"
+                    : forensicData.forensicVerdict === "ACEPTABLE_CON_PRECAUCIÓN"
+                    ? "bg-yellow-500/10 border-yellow-500/40"
+                    : "bg-red-500/10 border-red-500/40"
+                }`}>
+                  <div>
+                    <span className="text-xs uppercase font-extrabold tracking-wider text-amber-400 block">
+                      Re-Puntuación Forense Calibrada
+                    </span>
+                    <div className="text-3xl font-black text-white mt-1 flex items-center gap-3">
+                      <span>★ {forensicData.forensicScore} / 10</span>
+                      <span className={`text-xs px-3 py-1 rounded-full font-extrabold ${
+                        forensicData.forensicVerdict === "EXCELENTE"
+                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                          : forensicData.forensicVerdict === "ACEPTABLE_CON_PRECAUCIÓN"
+                          ? "bg-yellow-500/20 text-yellow-300 border border-yellow-500/40"
+                          : "bg-red-500/20 text-red-400 border border-red-500/40"
+                      }`}>
+                        {forensicData.forensicVerdict === "EXCELENTE" ? "🛡️ 100% LIMPIO / SIN ANOMALÍAS" : forensicData.forensicVerdict}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        handleAddToBasket({ address: forensicModalAddr, score: forensicData.forensicScore });
+                        setForensicModalAddr(null);
+                      }}
+                      className="px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-extrabold text-xs transition-all shadow-md shadow-amber-400/20 flex items-center gap-1.5"
+                    >
+                      <Plus className="w-4 h-4" /> Copiar Trader
+                    </button>
+                  </div>
+                </div>
+
+                {/* Batería de Tests Forenses */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <span>Resultados de los 5 Tests de Anomalías</span>
+                  </h3>
+
+                  <div className="space-y-2.5">
+                    {forensicData.anomalies?.map((item: any, i: number) => (
+                      <div
+                        key={i}
+                        className={`p-4 rounded-xl border flex items-start gap-3 text-xs ${
+                          item.status === "PASS"
+                            ? "bg-background/80 border-surface-border text-gray-200"
+                            : item.status === "WARNING"
+                            ? "bg-yellow-500/10 border-yellow-500/30 text-yellow-200"
+                            : "bg-red-500/10 border-red-500/30 text-red-200"
+                        }`}
+                      >
+                        <span className="text-base mt-0.5">
+                          {item.status === "PASS" ? "✅" : item.status === "WARNING" ? "⚠️" : "🚩"}
+                        </span>
+                        <div className="flex-1 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-white">{item.test}</span>
+                            <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded ${
+                              item.status === "PASS"
+                                ? "bg-emerald-500/20 text-emerald-400"
+                                : item.status === "WARNING"
+                                ? "bg-yellow-500/20 text-yellow-400"
+                                : "bg-red-500/20 text-red-400"
+                            }`}>
+                              {item.status === "PASS" ? "SUPERADO" : item.status === "WARNING" ? "PRECAUCIÓN" : "FALLÓ"}
+                            </span>
+                          </div>
+                          <p className="text-gray-300 leading-relaxed">{item.detail}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Desglose Cuantitativo Detallado */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                  <div className="p-3.5 rounded-xl bg-background border border-surface-border">
+                    <span className="text-[10px] text-gray-500 block uppercase">Mayor Trade Individual</span>
+                    <span className="font-mono font-bold text-white text-sm mt-1 block">
+                      +${parseFloat(forensicData.maxWin || "0").toLocaleString("en-US", { maximumFractionDigits: 0 })} USD
+                    </span>
+                    <span className="text-[10px] text-gray-400">{forensicData.concentrationPct}% del beneficio total</span>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-background border border-surface-border">
+                    <span className="text-[10px] text-gray-500 block uppercase">Ratio Win / Loss</span>
+                    <span className="font-mono font-bold text-emerald-400 text-sm mt-1 block">
+                      {forensicData.winLossRatio}x
+                    </span>
+                    <span className="text-[10px] text-gray-400">+${forensicData.avgWin} vs -${forensicData.avgLoss}</span>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-background border border-surface-border">
+                    <span className="text-[10px] text-gray-500 block uppercase">Pérdida Flotante Actual</span>
+                    <span className="font-mono font-bold text-white text-sm mt-1 block">
+                      {forensicData.floatingLossPct}%
+                    </span>
+                    <span className="text-[10px] text-gray-400">En posiciones abiertas</span>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-background border border-surface-border">
+                    <span className="text-[10px] text-gray-500 block uppercase">Utilización de Margen</span>
+                    <span className="font-mono font-bold text-blue-400 text-sm mt-1 block">
+                      {forensicData.marginUsagePct}%
+                    </span>
+                    <span className="text-[10px] text-gray-400">Sobre saldo total</span>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       )}

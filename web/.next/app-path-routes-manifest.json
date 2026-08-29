@@ -5,6 +5,7 @@
   "/api/analyze-trader/route": "/api/analyze-trader",
   "/api/cron/sync/route": "/api/cron/sync",
   "/api/discover-traders/route": "/api/discover-traders",
+  "/api/forensic-audit/route": "/api/forensic-audit",
   "/api/telegram/test/route": "/api/telegram/test",
   "/api/telegram/webhook/route": "/api/telegram/webhook",
   "/auth/page": "/auth",

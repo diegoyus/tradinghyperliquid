@@ -66,6 +66,12 @@
       "namedRegex": "^/api/discover\\-traders(?:/)?$"
     },
     {
+      "page": "/api/forensic-audit",
+      "regex": "^/api/forensic\\-audit(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/forensic\\-audit(?:/)?$"
+    },
+    {
       "page": "/api/telegram/test",
       "regex": "^/api/telegram/test(?:/)?$",
       "routeKeys": {},
