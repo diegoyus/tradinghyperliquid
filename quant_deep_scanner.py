@@ -39,7 +39,9 @@ def query_info_api(payload, max_retries=3):
             if resp.status_code == 200:
                 return resp.json()
             elif resp.status_code == 429:
-                time.sleep(2.0 + attempt * 1.5)
+                wait_sec = 2.5 + attempt * 2.0
+                print(f"\n  ⚠️  [AVISO RATE LIMIT] Límite de Hyperliquid alcanzado (HTTP 429). Pausando {wait_sec:.1f}s para descongestionar la IP...")
+                time.sleep(wait_sec)
                 continue
         except Exception:
             pass
@@ -50,7 +52,9 @@ def query_info_api(payload, max_retries=3):
             if proc.returncode == 0 and proc.stdout and not proc.stdout.startswith("rate limited"):
                 return json.loads(proc.stdout)
             elif "rate limited" in proc.stdout:
-                time.sleep(2.0 + attempt * 1.5)
+                wait_sec = 2.5 + attempt * 2.0
+                print(f"\n  ⚠️  [AVISO RATE LIMIT (curl)] Hyperliquid ocupado. Pausando {wait_sec:.1f}s...")
+                time.sleep(wait_sec)
         except Exception:
             pass
 

@@ -522,8 +522,27 @@ export default function AnalyticsPage() {
         </form>
 
         {error && (
-          <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
-            {error}
+          <div className={`p-4 rounded-xl border flex items-start gap-3 text-xs ${
+            error.includes("429") || error.includes("Límite") || error.includes("rate limit")
+              ? "bg-amber-500/15 border-amber-500/40 text-amber-200 shadow-lg shadow-amber-500/10"
+              : "bg-red-500/10 border-red-500/30 text-red-400"
+          }`}>
+            <span className="text-lg mt-0.5 shrink-0">
+              {error.includes("429") || error.includes("Límite") ? "⚠️" : "❌"}
+            </span>
+            <div className="space-y-1">
+              <span className="font-bold text-white block text-sm">
+                {error.includes("429") || error.includes("Límite")
+                  ? "Alerta de Límite de Peticiones de Hyperliquid (Rate Limit HTTP 429)"
+                  : "Error en la consulta"}
+              </span>
+              <p className="leading-relaxed text-xs">{error}</p>
+              {(error.includes("429") || error.includes("Límite")) && (
+                <p className="text-[11px] text-amber-300/90 font-mono pt-1">
+                  💡 El cortafuegos de Hyperliquid ha solicitado una breve pausa. Espera 10-15 segundos antes de volver a pulsar &quot;Auditar Billetera&quot;.
+                </p>
+              )}
+            </div>
           </div>
         )}
       </div>

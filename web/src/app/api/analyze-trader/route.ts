@@ -95,6 +95,18 @@ export async function POST(req: Request) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: "clearinghouseState", user: cleanAddress }),
     });
+
+    if (stateRes.status === 429) {
+      return NextResponse.json(
+        {
+          success: false,
+          isRateLimited: true,
+          error: "⚠️ Límite de consultas de Hyperliquid alcanzado (HTTP 429). Tu IP ha superado temporalmente las peticiones por segundo. Espera 10-15 segundos para consultar de nuevo.",
+        },
+        { status: 429 }
+      );
+    }
+
     const userState = stateRes.ok ? await stateRes.json() : {};
 
     // 2. Consultar historial COMPLETO de órdenes (fills)
@@ -103,6 +115,18 @@ export async function POST(req: Request) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: "userFills", user: cleanAddress }),
     });
+
+    if (fillsRes.status === 429) {
+      return NextResponse.json(
+        {
+          success: false,
+          isRateLimited: true,
+          error: "⚠️ Límite de consultas de Hyperliquid alcanzado (HTTP 429) al descargar el historial de trades. Espera 10-15 segundos.",
+        },
+        { status: 429 }
+      );
+    }
+
     const rawFills = fillsRes.ok && Array.isArray(await fillsRes.json())
       ? await (await fetch(HYPERLIQUID_INFO_URL, {
           method: "POST",

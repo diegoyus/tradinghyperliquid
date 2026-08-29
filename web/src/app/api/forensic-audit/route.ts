@@ -87,6 +87,18 @@ export async function POST(req: Request) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: "clearinghouseState", user: cleanAddress }),
     });
+
+    if (stateRes.status === 429) {
+      return NextResponse.json(
+        {
+          success: false,
+          isRateLimited: true,
+          error: "⚠️ Límite de peticiones de Hyperliquid alcanzado (HTTP 429). Por favor, espera 15 segundos para consultar de nuevo.",
+        },
+        { status: 429 }
+      );
+    }
+
     const userState = stateRes.ok ? await stateRes.json() : {};
 
     // 2. Historial de órdenes completo
@@ -95,6 +107,18 @@ export async function POST(req: Request) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: "userFills", user: cleanAddress }),
     });
+
+    if (fillsRes.status === 429) {
+      return NextResponse.json(
+        {
+          success: false,
+          isRateLimited: true,
+          error: "⚠️ Límite de peticiones de Hyperliquid alcanzado (HTTP 429) al recuperar los fills del trader. Espera 15 segundos.",
+        },
+        { status: 429 }
+      );
+    }
+
     const rawFills = fillsRes.ok && Array.isArray(await fillsRes.json())
       ? await (await fetch(HYPERLIQUID_INFO_URL, {
           method: "POST",
