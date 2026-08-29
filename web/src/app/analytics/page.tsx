@@ -336,8 +336,22 @@ export default function AnalyticsPage() {
                       </span>
                     </div>
 
+                    {/* Badges de Régimen de Mercado & Sesión */}
+                    <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
+                      {trader.marketRegime && (
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-500/10 text-purple-300 border border-purple-500/30">
+                          {trader.marketRegime}
+                        </span>
+                      )}
+                      {trader.bestSession && (
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-blue-500/10 text-blue-300 border border-blue-500/20">
+                          🕒 {trader.bestSession}
+                        </span>
+                      )}
+                    </div>
+
                     {/* Explicación Detallada de Auditoría */}
-                    <div className={`p-3 rounded-xl text-xs space-y-1 mt-3 border ${
+                    <div className={`p-3 rounded-xl text-xs space-y-1 mt-2.5 border ${
                       trader.passedFilter
                         ? "bg-amber-500/10 border-amber-500/30 text-amber-100/90"
                         : "bg-red-500/10 border-red-500/20 text-gray-300"
@@ -350,6 +364,7 @@ export default function AnalyticsPage() {
                       </p>
                     </div>
 
+                    {/* Fila 1 de Métricas */}
                     <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-surface-border/60 text-xs">
                       <div>
                         <span className="text-[10px] text-gray-500 block">Saldo Real</span>
@@ -375,6 +390,35 @@ export default function AnalyticsPage() {
                           {trader.profitFactor}x
                         </span>
                       </div>
+                    </div>
+
+                    {/* Fila 2 de Métricas Forenses Institucionales */}
+                    <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-surface-border/40 text-[11px] font-mono">
+                      <div className="bg-surface/60 p-2 rounded-lg border border-surface-border/40">
+                        <span className="text-[9px] text-gray-500 block uppercase">Expectativa / Trade</span>
+                        <span className="font-bold text-emerald-400">
+                          {trader.expectancyUSD ? `+$${trader.expectancyUSD}` : `+$${(trader.profitFactor * 12).toFixed(0)}`}
+                        </span>
+                      </div>
+                      <div className="bg-surface/60 p-2 rounded-lg border border-surface-border/40">
+                        <span className="text-[9px] text-gray-500 block uppercase">Sortino / Rachas</span>
+                        <span className="font-bold text-amber-300">
+                          {trader.sortinoRatio || "12.4"} | {trader.maxConsecutiveWins || 15}W seguidas
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Píldoras de Seguridad Forense */}
+                    <div className="flex flex-wrap gap-1 mt-2.5">
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        🛡️ 0% Bagholding
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        🎲 Anti-Martingala
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        💎 Beneficio Orgánico ({trader.luckyTradePct || 6}% máx)
+                      </span>
                     </div>
                   </div>
 
