@@ -127,6 +127,9 @@ export function updateTelegramChatId(chatId: string): UserProfile {
 }
 
 export function resetProfile(): UserProfile {
+  if (typeof window !== "undefined") {
+    localStorage.setItem("hyperliquid_reset_timestamp", Date.now().toString());
+  }
   const fresh: UserProfile = {
     ...INITIAL_PROFILE,
     initial_balance: 10000.0,

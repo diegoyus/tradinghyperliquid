@@ -17,6 +17,9 @@ export default function DashboardPage() {
   const [liveGlobalPnl, setLiveGlobalPnl] = useState(0);
   const [liveGlobalWins, setLiveGlobalWins] = useState(0);
   const [liveGlobalLosses, setLiveGlobalLosses] = useState(0);
+  const [liveEquityHistory, setLiveEquityHistory] = useState<{ time: string; balance: number }[]>([
+    { time: "Inicio", balance: 10000.0 }
+  ]);
 
   useEffect(() => {
     setMounted(true);
@@ -29,10 +32,18 @@ export default function DashboardPage() {
     const HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info";
 
     const fetchLiveStats = async () => {
+      // Leer timestamp de reinicio si existe
+      const resetTime = typeof window !== "undefined"
+        ? parseInt(localStorage.getItem("hyperliquid_reset_timestamp") || "0")
+        : 0;
+
       const perTrader: Record<string, any> = {};
       let globalPnl = 0;
       let globalWins = 0;
       let globalLosses = 0;
+
+      const allClosedTrades: { timestamp: number; pnl: number; timeStr: string }[] = [];
+      let totalFloatingPnl = 0;
 
       for (const t of profile.traders) {
         try {
@@ -57,7 +68,11 @@ export default function DashboardPage() {
 
           // Contar trades cerrados y calcular PnL proporcional
           const closedFills = Array.isArray(fills)
-            ? fills.filter((f: any) => parseFloat(f.closedPnl || "0") !== 0)
+            ? fills.filter((f: any) => {
+                const isClosed = parseFloat(f.closedPnl || "0") !== 0;
+                const afterReset = (f.time || 0) > resetTime;
+                return isClosed && afterReset;
+              })
             : [];
 
           let traderPnl = 0;
@@ -71,6 +86,14 @@ export default function DashboardPage() {
             traderPnl += myPnl;
             if (myPnl > 0) wins++;
             else if (myPnl < 0) losses++;
+
+            const d = f.time ? new Date(f.time) : new Date();
+            const timeStr = `${d.getDate().toString().padStart(2, "0")}/${(d.getMonth() + 1).toString().padStart(2, "0")} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+            allClosedTrades.push({
+              timestamp: f.time || 0,
+              pnl: myPnl,
+              timeStr
+            });
           }
 
           // Posiciones abiertas
@@ -78,12 +101,17 @@ export default function DashboardPage() {
           for (const p of assetPositions) {
             const pos = p.position || {};
             const szi = parseFloat(pos.szi || "0");
+            const unrealizedPnl = parseFloat(pos.unrealizedPnl || "0");
             if (szi !== 0) {
               openPositions.push({
                 coin: pos.coin || "Crypto",
                 side: szi > 0 ? "LONG" : "SHORT",
                 leverage: pos.leverage?.value || 10,
               });
+
+              const pnlFrac = traderAccountValue > 0 ? unrealizedPnl / traderAccountValue : 0;
+              const myPosPnl = userCapital * pnlFrac;
+              totalFloatingPnl += myPosPnl;
             }
           }
 
@@ -109,6 +137,34 @@ export default function DashboardPage() {
       setLiveGlobalPnl(globalPnl);
       setLiveGlobalWins(globalWins);
       setLiveGlobalLosses(globalLosses);
+
+      // Reconstruir la curva de capital cronológicamente
+      allClosedTrades.sort((a, b) => a.timestamp - b.timestamp);
+      let runningBal = profile.initial_balance;
+      const newHistory = [{ time: "Inicio", balance: runningBal }];
+
+      for (const t of allClosedTrades) {
+        runningBal += t.pnl;
+        newHistory.push({
+          time: t.timeStr,
+          balance: parseFloat(runningBal.toFixed(2))
+        });
+      }
+
+      // Añadir valor flotante final
+      if (Math.abs(totalFloatingPnl) > 0.01) {
+        newHistory.push({
+          time: "Con Flotante",
+          balance: parseFloat((runningBal + totalFloatingPnl).toFixed(2))
+        });
+      } else {
+        newHistory.push({
+          time: "Actual",
+          balance: parseFloat(runningBal.toFixed(2))
+        });
+      }
+
+      setLiveEquityHistory(newHistory);
     };
 
     fetchLiveStats();
@@ -369,7 +425,7 @@ export default function DashboardPage() {
 
         <div className="h-72 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={profile.equity_history}>
+            <AreaChart data={liveEquityHistory}>
               <defs>
                 <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
@@ -497,7 +553,15 @@ function LiveCopiedPositions({ traders, userBalance }: { traders: any[]; userBal
 
         // Trades cerrados recientes (últimos 30)
         if (Array.isArray(fills)) {
-          const closed = fills.filter((f: any) => parseFloat(f.closedPnl || "0") !== 0).slice(0, 30);
+          const resetTime = typeof window !== "undefined"
+            ? parseInt(localStorage.getItem("hyperliquid_reset_timestamp") || "0")
+            : 0;
+
+          const closed = fills.filter((f: any) => {
+            const isClosed = parseFloat(f.closedPnl || "0") !== 0;
+            const afterReset = (f.time || 0) > resetTime;
+            return isClosed && afterReset;
+          }).slice(0, 30);
           for (const f of closed) {
             const pnl = parseFloat(f.closedPnl || "0");
             const pnlFrac = traderAccountValue > 0 ? pnl / traderAccountValue : 0;

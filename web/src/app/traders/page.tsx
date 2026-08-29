@@ -381,7 +381,7 @@ export default function TradersPage() {
                           <input
                             type="range"
                             min="1"
-                            max="20"
+                            max="50"
                             step="1"
                             value={t.max_leverage}
                             onChange={(e) => handleUpdateTraderField(idx, "max_leverage", Number(e.target.value))}

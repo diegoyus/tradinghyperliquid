@@ -128,7 +128,7 @@ class MultiUserCopyEngine:
                         "size": user_sz,
                         "entry_px": px,
                         "side": new_side,
-                        "leverage": min(max_leverage, 10),
+                        "leverage": max_leverage,
                         "open_time": now_str
                     }
                 else:
@@ -145,7 +145,7 @@ class MultiUserCopyEngine:
                         f"{emoji} <b>[NUEVA ORDEN COPIADA]</b>\n\n"
                         f"👤 <b>Trader:</b> {trader_name}\n"
                         f"🪙 <b>Activo:</b> {coin}\n"
-                        f"📊 <b>Posición:</b> {new_side} ({min(max_leverage, 10)}x)\n"
+                        f"📊 <b>Posición:</b> {new_side} ({max_leverage}x)\n"
                         f"💲 <b>Precio Entrada:</b> ${px:,.2f}\n"
                         f"💵 <b>Tamaño Virtual:</b> ${trade_usd:,.2f} USD\n"
                         f"💼 <b>Tu Asignación:</b> {alloc_pct}% de cartera"

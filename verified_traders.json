@@ -1,8 +1,8 @@
 {
-  "lastAudited": "29/08/2026 20:46:26",
-  "totalScanned": 18500,
-  "totalPassed": 39,
-  "totalFailed": 18461,
+  "lastAudited": "29/08/2026 21:52:17",
+  "totalScanned": 20750,
+  "totalPassed": 41,
+  "totalFailed": 20709,
   "mode": "100%_FULL_CENSUS_ONCHAIN_SQLITE",
   "traders": [
     {
@@ -1894,6 +1894,132 @@
         }
       ],
       "strategy": "Operativa en HYPE, ZEC, @151. Ratio B/P 99.0x. \ud83c\udf26\ufe0f Todoterreno (Bull & Bear)."
+    },
+    {
+      "address": "0x0db69458852d57676a5bc032c0c711da2c4bae17",
+      "name": "Trader 0x0db6 (@107)",
+      "score": "9.9",
+      "passedFilter": true,
+      "filterAuditReason": "\u2b50 APROBADO: Win Rate 100.0% en 23 trades, Profit Factor 99.00x, Sortino 9.9, Drawdown -0.00%, Expectativa +$1216/trade, 0% p\u00e9rdidas flotantes en @107, TRUMP.",
+      "accountValue": 21160.16,
+      "winRate": 100.0,
+      "profitFactor": 99.0,
+      "sortinoRatio": 9.9,
+      "expectancyUSD": 1215.93,
+      "maxConsecutiveWins": 23,
+      "maxConsecutiveLosses": 0,
+      "luckyTradePct": 23.7,
+      "marketRegime": "\ud83d\udcc9 Cobertura (Shorts)",
+      "bestSession": "Sesi\u00f3n Londres",
+      "tradingStyle": "\ud83c\udf0a Swing Trading de Posici\u00f3n",
+      "maxDrawdownPct": 0.0,
+      "totalFills": 53,
+      "closedTradesCount": 23,
+      "netPnlTotal": 27966.31,
+      "monthPnl": 0.0,
+      "monthRoi": 0.0,
+      "monthWinRate": 100.0,
+      "weekPnl": 0.0,
+      "weekWinRate": 100.0,
+      "floatingLossPct": 0.0,
+      "marginUtilizationPct": 0.0,
+      "topAssets": "@107, TRUMP",
+      "anomalies": [
+        {
+          "test": "Distribuci\u00f3n de Ganancias",
+          "status": "PASS",
+          "detail": "Ganancias 100% org\u00e1nicas."
+        },
+        {
+          "test": "Anti-Martingala",
+          "status": "PASS",
+          "detail": "Gesti\u00f3n de tama\u00f1o disciplinada."
+        },
+        {
+          "test": "P\u00e9rdidas Flotantes",
+          "status": "PASS",
+          "detail": "0% p\u00e9rdidas ocultas en posiciones abiertas."
+        },
+        {
+          "test": "Ratio Riesgo/Beneficio",
+          "status": "PASS",
+          "detail": "Relaci\u00f3n equilibrada (99.00x)."
+        },
+        {
+          "test": "Solvencia de Margen",
+          "status": "PASS",
+          "detail": "Margen en uso seguro (0.0%)."
+        },
+        {
+          "test": "Control de Rachas",
+          "status": "PASS",
+          "detail": "M\u00e1x 0 p\u00e9rdidas seguidas."
+        }
+      ],
+      "strategy": "Operativa en @107, TRUMP. Ratio B/P 99.0x. \ud83d\udcc9 Cobertura (Shorts)."
+    },
+    {
+      "address": "0x1576d1f4f475f2558265ed96816262ba17b25774",
+      "name": "Trader 0x1576 (BTC)",
+      "score": "9.9",
+      "passedFilter": true,
+      "filterAuditReason": "\u2b50 APROBADO: Win Rate 100.0% en 48 trades, Profit Factor 99.00x, Sortino 9.9, Drawdown -0.00%, Expectativa +$31/trade, 0% p\u00e9rdidas flotantes en BTC, ETH.",
+      "accountValue": 103272.46,
+      "winRate": 100.0,
+      "profitFactor": 99.0,
+      "sortinoRatio": 9.9,
+      "expectancyUSD": 31.4,
+      "maxConsecutiveWins": 48,
+      "maxConsecutiveLosses": 0,
+      "luckyTradePct": 22.1,
+      "marketRegime": "\ud83c\udf26\ufe0f Todoterreno (Bull & Bear)",
+      "bestSession": "Sesi\u00f3n Nueva York",
+      "tradingStyle": "\ud83c\udf0a Swing Trading de Posici\u00f3n",
+      "maxDrawdownPct": 0.0,
+      "totalFills": 241,
+      "closedTradesCount": 48,
+      "netPnlTotal": 1507.16,
+      "monthPnl": 0.0,
+      "monthRoi": 0.0,
+      "monthWinRate": 100.0,
+      "weekPnl": 0.0,
+      "weekWinRate": 100.0,
+      "floatingLossPct": 2.4,
+      "marginUtilizationPct": 0.4,
+      "topAssets": "BTC, ETH",
+      "anomalies": [
+        {
+          "test": "Distribuci\u00f3n de Ganancias",
+          "status": "PASS",
+          "detail": "Ganancias 100% org\u00e1nicas."
+        },
+        {
+          "test": "Anti-Martingala",
+          "status": "PASS",
+          "detail": "Gesti\u00f3n de tama\u00f1o disciplinada."
+        },
+        {
+          "test": "P\u00e9rdidas Flotantes",
+          "status": "PASS",
+          "detail": "0% p\u00e9rdidas ocultas en posiciones abiertas."
+        },
+        {
+          "test": "Ratio Riesgo/Beneficio",
+          "status": "PASS",
+          "detail": "Relaci\u00f3n equilibrada (99.00x)."
+        },
+        {
+          "test": "Solvencia de Margen",
+          "status": "PASS",
+          "detail": "Margen en uso seguro (0.4%)."
+        },
+        {
+          "test": "Control de Rachas",
+          "status": "PASS",
+          "detail": "M\u00e1x 0 p\u00e9rdidas seguidas."
+        }
+      ],
+      "strategy": "Operativa en BTC, ETH. Ratio B/P 99.0x. \ud83c\udf26\ufe0f Todoterreno (Bull & Bear)."
     },
     {
       "address": "0x20378ca729e0d942d9faecdca367dc2a01197aa7",
@@ -15628,132 +15754,6 @@
         }
       ],
       "strategy": "Operativa en BTC. Ratio B/P 99.0x. \ud83d\udcc9 Cobertura (Shorts)."
-    },
-    {
-      "address": "0x25c0d99f9855dd4b1354e3696fe3e141fda81017",
-      "name": "Trader 0x25c0 (PURR/USDC)",
-      "score": "4.0",
-      "passedFilter": false,
-      "filterAuditReason": "\u274c DESCARTADO: P\u00e9rdida flotante abierta del -35.1%.; Margen en uso excesivo (124.3%).; Fall\u00f3 tests forenses: P\u00e9rdidas Flotantes, Sobreapalancamiento.",
-      "accountValue": 22108.16,
-      "winRate": 100.0,
-      "profitFactor": 99.0,
-      "sortinoRatio": 9.9,
-      "expectancyUSD": 3842.67,
-      "maxConsecutiveWins": 98,
-      "maxConsecutiveLosses": 0,
-      "luckyTradePct": 24.7,
-      "marketRegime": "\ud83d\udcc9 Cobertura (Shorts)",
-      "bestSession": "Sesi\u00f3n Londres",
-      "tradingStyle": "\u23f1\ufe0f Day Trading Intradiario",
-      "maxDrawdownPct": 0.0,
-      "totalFills": 377,
-      "closedTradesCount": 98,
-      "netPnlTotal": 376581.89,
-      "monthPnl": 0.0,
-      "monthRoi": 0.0,
-      "monthWinRate": 100.0,
-      "weekPnl": 0.0,
-      "weekWinRate": 100.0,
-      "floatingLossPct": -35.1,
-      "marginUtilizationPct": 124.3,
-      "topAssets": "PURR/USDC, @107, PURR",
-      "anomalies": [
-        {
-          "test": "Distribuci\u00f3n de Ganancias",
-          "status": "PASS",
-          "detail": "Ganancias 100% org\u00e1nicas."
-        },
-        {
-          "test": "Anti-Martingala",
-          "status": "PASS",
-          "detail": "Gesti\u00f3n de tama\u00f1o disciplinada."
-        },
-        {
-          "test": "P\u00e9rdidas Flotantes",
-          "status": "FAIL",
-          "detail": "P\u00e9rdida abierta de -35.1% del capital."
-        },
-        {
-          "test": "Ratio Riesgo/Beneficio",
-          "status": "PASS",
-          "detail": "Relaci\u00f3n equilibrada (99.00x)."
-        },
-        {
-          "test": "Sobreapalancamiento",
-          "status": "FAIL",
-          "detail": "Margen en uso elevado (124.3%)."
-        },
-        {
-          "test": "Control de Rachas",
-          "status": "PASS",
-          "detail": "M\u00e1x 0 p\u00e9rdidas seguidas."
-        }
-      ],
-      "strategy": "Operativa en PURR/USDC, @107, PURR. Ratio B/P 99.0x. \ud83d\udcc9 Cobertura (Shorts)."
-    },
-    {
-      "address": "0xd6c0a063dbfa3bd09d18a7afcadcd1925769547c",
-      "name": "Trader 0xd6c0 (AERO)",
-      "score": "4.0",
-      "passedFilter": false,
-      "filterAuditReason": "\u274c DESCARTADO: Margen en uso excesivo (101.4%).; Fall\u00f3 tests forenses: Sobreapalancamiento.",
-      "accountValue": 56356.8,
-      "winRate": 100.0,
-      "profitFactor": 99.0,
-      "sortinoRatio": 9.9,
-      "expectancyUSD": 7.05,
-      "maxConsecutiveWins": 19,
-      "maxConsecutiveLosses": 0,
-      "luckyTradePct": 17.2,
-      "marketRegime": "\ud83d\udcc9 Cobertura (Shorts)",
-      "bestSession": "Sesi\u00f3n Londres",
-      "tradingStyle": "\ud83c\udf0a Swing Trading de Posici\u00f3n",
-      "maxDrawdownPct": 0.0,
-      "totalFills": 602,
-      "closedTradesCount": 19,
-      "netPnlTotal": 133.96,
-      "monthPnl": 133.96,
-      "monthRoi": 0.2,
-      "monthWinRate": 100.0,
-      "weekPnl": 133.96,
-      "weekWinRate": 100.0,
-      "floatingLossPct": -0.3,
-      "marginUtilizationPct": 101.4,
-      "topAssets": "AERO",
-      "anomalies": [
-        {
-          "test": "Distribuci\u00f3n de Ganancias",
-          "status": "PASS",
-          "detail": "Ganancias 100% org\u00e1nicas."
-        },
-        {
-          "test": "Anti-Martingala",
-          "status": "PASS",
-          "detail": "Gesti\u00f3n de tama\u00f1o disciplinada."
-        },
-        {
-          "test": "P\u00e9rdidas Flotantes",
-          "status": "PASS",
-          "detail": "0% p\u00e9rdidas ocultas en posiciones abiertas."
-        },
-        {
-          "test": "Ratio Riesgo/Beneficio",
-          "status": "PASS",
-          "detail": "Relaci\u00f3n equilibrada (99.00x)."
-        },
-        {
-          "test": "Sobreapalancamiento",
-          "status": "FAIL",
-          "detail": "Margen en uso elevado (101.4%)."
-        },
-        {
-          "test": "Control de Rachas",
-          "status": "PASS",
-          "detail": "M\u00e1x 0 p\u00e9rdidas seguidas."
-        }
-      ],
-      "strategy": "Operativa en AERO. Ratio B/P 99.0x. \ud83d\udcc9 Cobertura (Shorts)."
     }
   ]
 }

@@ -1,10 +1,10 @@
 [
   {
     "route": "/analytics",
-    "firstLoadUncompressedJsBytes": 907264,
+    "firstLoadUncompressedJsBytes": 907338,
     "firstLoadChunkPaths": [
       ".next/static/chunks/1v28weday-aas.js",
-      ".next/static/chunks/3qxvkl576a_50.js",
+      ".next/static/chunks/1_8j8qkx0fvps.js",
       ".next/static/chunks/0c86a475_wdvr.js",
       ".next/static/chunks/03_2601yk9x-6.js",
       ".next/static/chunks/3mc6dra1m0098.js",
@@ -16,10 +16,10 @@
   },
   {
     "route": "/dashboard",
-    "firstLoadUncompressedJsBytes": 883225,
+    "firstLoadUncompressedJsBytes": 884213,
     "firstLoadChunkPaths": [
       ".next/static/chunks/1v28weday-aas.js",
-      ".next/static/chunks/0ik897udibau_.js",
+      ".next/static/chunks/0x25y2ui468e3.js",
       ".next/static/chunks/0c86a475_wdvr.js",
       ".next/static/chunks/3mc6dra1m0098.js",
       ".next/static/chunks/2i51e627rllld.js",
@@ -30,10 +30,10 @@
   },
   {
     "route": "/traders",
-    "firstLoadUncompressedJsBytes": 487919,
+    "firstLoadUncompressedJsBytes": 487993,
     "firstLoadChunkPaths": [
       ".next/static/chunks/1v28weday-aas.js",
-      ".next/static/chunks/3f3qhc6efht7f.js",
+      ".next/static/chunks/1jy1-8w9-fv28.js",
       ".next/static/chunks/3mc6dra1m0098.js",
       ".next/static/chunks/2i51e627rllld.js",
       ".next/static/chunks/3byuobrkyz9bj.js",
@@ -43,10 +43,10 @@
   },
   {
     "route": "/settings",
-    "firstLoadUncompressedJsBytes": 475955,
+    "firstLoadUncompressedJsBytes": 476029,
     "firstLoadChunkPaths": [
       ".next/static/chunks/1v28weday-aas.js",
-      ".next/static/chunks/1cjomz0htray4.js",
+      ".next/static/chunks/3b17o9jckav2t.js",
       ".next/static/chunks/3mc6dra1m0098.js",
       ".next/static/chunks/2i51e627rllld.js",
       ".next/static/chunks/3byuobrkyz9bj.js",
@@ -56,10 +56,10 @@
   },
   {
     "route": "/auth",
-    "firstLoadUncompressedJsBytes": 474584,
+    "firstLoadUncompressedJsBytes": 474658,
     "firstLoadChunkPaths": [
       ".next/static/chunks/1v28weday-aas.js",
-      ".next/static/chunks/2aaqe82hs1hu5.js",
+      ".next/static/chunks/2lseqmu6p5sdw.js",
       ".next/static/chunks/3mc6dra1m0098.js",
       ".next/static/chunks/2i51e627rllld.js",
       ".next/static/chunks/3byuobrkyz9bj.js",
