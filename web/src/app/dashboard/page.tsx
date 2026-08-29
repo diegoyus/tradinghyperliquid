@@ -314,59 +314,9 @@ export default function DashboardPage() {
       </div>
 
       {/* Positions and Trades Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Open Positions Table */}
-        <div className="p-6 rounded-2xl bg-surface border border-surface-border">
-          <h2 className="text-lg font-bold text-white mb-4 flex items-center justify-between">
-            <span>Posiciones Abiertas Actualmente</span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-300">
-              {openPositionsList.length} activas
-            </span>
-          </h2>
-
-          {openPositionsList.length === 0 ? (
-            <div className="py-12 text-center text-gray-500 text-sm">
-              Sin posiciones abiertas en este momento. El bot abrirá órdenes automáticamente cuando los líderes operen.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-surface-border text-gray-400">
-                    <th className="pb-3">Activo</th>
-                    <th className="pb-3">Trader</th>
-                    <th className="pb-3">Lado</th>
-                    <th className="pb-3">Tamaño</th>
-                    <th className="pb-3 text-right">Precio Entrada</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-surface-border">
-                  {openPositionsList.map(([key, pos]) => (
-                    <tr key={key} className="hover:bg-gray-800/40 transition-colors">
-                      <td className="py-3 font-bold text-white">{pos.coin}</td>
-                      <td className="py-3 text-gray-400">{pos.trader_name}</td>
-                      <td className="py-3">
-                        <span
-                          className={`px-2 py-0.5 rounded font-semibold text-[11px] ${
-                            pos.side === "LONG"
-                              ? "bg-emerald-500/20 text-emerald-400"
-                              : "bg-red-500/20 text-red-400"
-                          }`}
-                        >
-                          {pos.side} {pos.leverage}x
-                        </span>
-                      </td>
-                      <td className="py-3 text-gray-300">{pos.size} {pos.coin}</td>
-                      <td className="py-3 text-right font-mono text-white">
-                        ${pos.entry_px.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+      <div className="space-y-8">
+        {/* POSICIONES ABIERTAS EN VIVO (consulta real a Hyperliquid) */}
+        <LiveCopiedPositions traders={profile.traders} userBalance={profile.cash_balance} />
 
         {/* Closed Trades History with Filter by Trader */}
         <div className="p-6 rounded-2xl bg-surface border border-surface-border space-y-4">
@@ -437,5 +387,236 @@ export default function DashboardPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ============================================================
+// COMPONENTE: Posiciones Copiadas en Vivo desde Hyperliquid
+// ============================================================
+function LiveCopiedPositions({ traders, userBalance }: { traders: any[]; userBalance: number }) {
+  const [positions, setPositions] = useState<any[]>([]);
+  const [recentTrades, setRecentTrades] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [lastRefresh, setLastRefresh] = useState("");
+
+  const fetchLivePositions = async () => {
+    setLoading(true);
+    const HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info";
+    const allPositions: any[] = [];
+    const allRecentTrades: any[] = [];
+
+    for (const t of traders) {
+      try {
+        const [stRes, fillsRes] = await Promise.all([
+          fetch(HYPERLIQUID_INFO_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "clearinghouseState", user: t.address }),
+          }),
+          fetch(HYPERLIQUID_INFO_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "userFills", user: t.address }),
+          }),
+        ]);
+
+        if (!stRes.ok) continue;
+        const stData = await stRes.json();
+        const fills = fillsRes.ok ? await fillsRes.json() : [];
+        const traderAccountValue = parseFloat(stData?.marginSummary?.accountValue || "100000");
+
+        // Posiciones abiertas
+        const assetPositions = stData?.assetPositions || [];
+        for (const p of assetPositions) {
+          const pos = p.position || {};
+          const szi = parseFloat(pos.szi || "0");
+          const entryPx = parseFloat(pos.entryPx || "0");
+          const unrealizedPnl = parseFloat(pos.unrealizedPnl || "0");
+          const coin = pos.coin || "Crypto";
+
+          if (szi === 0 || entryPx <= 0) continue;
+
+          const traderPosNotional = Math.abs(szi) * entryPx;
+          const fraction = traderAccountValue > 0 ? traderPosNotional / traderAccountValue : 0.1;
+          const userFraction = Math.min(fraction * (t.risk_multiplier || 1.0), (t.max_trade_sizing_pct || 25) / 100);
+          const userCapital = userBalance * (t.allocation_pct / 100);
+          const myNotional = userCapital * userFraction;
+          const myLev = Math.min(pos.leverage?.value || 10, t.max_leverage || 10);
+          const myMargin = myNotional / myLev;
+          const myQty = myNotional / entryPx;
+          const pnlFrac = traderAccountValue > 0 ? unrealizedPnl / traderAccountValue : 0;
+          const myPnl = userCapital * pnlFrac;
+          const myPnlPct = myMargin > 0 ? (myPnl / myMargin) * 100 : 0;
+
+          // Buscar fecha apertura en fills
+          let openDate = "—";
+          if (Array.isArray(fills)) {
+            const matchingFill = fills.find((f: any) => f.coin === coin);
+            if (matchingFill?.time) {
+              const d = new Date(matchingFill.time);
+              openDate = d.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "2-digit" }) + " " + d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+            }
+          }
+
+          allPositions.push({
+            traderName: t.name,
+            coin,
+            side: szi > 0 ? "LONG" : "SHORT",
+            myLev,
+            myMargin,
+            myNotional,
+            myQty,
+            entryPx,
+            myPnl,
+            myPnlPct,
+            openDate,
+          });
+        }
+
+        // Trades cerrados recientes (últimos 30)
+        if (Array.isArray(fills)) {
+          const closed = fills.filter((f: any) => parseFloat(f.closedPnl || "0") !== 0).slice(0, 30);
+          for (const f of closed) {
+            const pnl = parseFloat(f.closedPnl || "0");
+            const pnlFrac = traderAccountValue > 0 ? pnl / traderAccountValue : 0;
+            const userCapital = userBalance * (t.allocation_pct / 100);
+            const myPnl = userCapital * pnlFrac;
+            const d = f.time ? new Date(f.time) : new Date();
+
+            allRecentTrades.push({
+              traderName: t.name,
+              coin: f.coin || "Crypto",
+              dir: f.dir || "—",
+              myPnl,
+              time: d.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" }) + " " + d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }),
+              timestamp: d.getTime(),
+            });
+          }
+        }
+      } catch {}
+    }
+
+    allRecentTrades.sort((a, b) => b.timestamp - a.timestamp);
+    setPositions(allPositions);
+    setRecentTrades(allRecentTrades.slice(0, 50));
+    setLastRefresh(new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchLivePositions();
+    const interval = setInterval(fetchLivePositions, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const totalPnl = positions.reduce((s, p) => s + p.myPnl, 0);
+  const totalMargin = positions.reduce((s, p) => s + p.myMargin, 0);
+  const totalPnlPct = totalMargin > 0 ? (totalPnl / totalMargin) * 100 : 0;
+
+  return (
+    <>
+      {/* POSICIONES ABIERTAS EN VIVO */}
+      <div className="p-6 rounded-2xl bg-surface border border-surface-border space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <Activity className="w-5 h-5 text-primary" /> Tus Posiciones Copiadas en Vivo
+            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-300">
+              {positions.length} activas
+            </span>
+          </h2>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-gray-500">Actualizado: {lastRefresh}</span>
+            <button onClick={fetchLivePositions} className="p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white transition-colors" title="Refrescar">
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            </button>
+          </div>
+        </div>
+
+        {positions.length === 0 ? (
+          <div className="py-10 text-center text-gray-500 text-sm">
+            {loading ? "Consultando posiciones reales en Hyperliquid..." : "Sin posiciones abiertas. Tu capital está 100% en liquidez segura."}
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-surface-border text-gray-400">
+                    <th className="pb-3">Activo</th>
+                    <th className="pb-3">Trader</th>
+                    <th className="pb-3">Lado</th>
+                    <th className="pb-3 text-right">Tu Margen</th>
+                    <th className="pb-3 text-right">Entrada</th>
+                    <th className="pb-3 text-right">Tu PnL</th>
+                    <th className="pb-3 text-right">📅 Fecha Apertura</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-surface-border">
+                  {positions.map((pos, idx) => (
+                    <tr key={idx} className="hover:bg-gray-800/40 transition-colors">
+                      <td className="py-3 font-bold text-white">{pos.coin}</td>
+                      <td className="py-3 text-gray-400 text-[11px]">{pos.traderName}</td>
+                      <td className="py-3">
+                        <span className={`px-2 py-0.5 rounded font-semibold text-[11px] ${pos.side === "LONG" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}>
+                          {pos.side} {pos.myLev}x
+                        </span>
+                      </td>
+                      <td className="py-3 text-right font-mono text-gray-300">${pos.myMargin.toFixed(2)}</td>
+                      <td className="py-3 text-right font-mono text-white">${pos.entryPx.toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                      <td className={`py-3 text-right font-mono font-bold ${pos.myPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                        {pos.myPnl >= 0 ? "+" : ""}${pos.myPnl.toFixed(2)} <span className="text-[10px] opacity-70">({pos.myPnlPct >= 0 ? "+" : ""}{pos.myPnlPct.toFixed(1)}%)</span>
+                      </td>
+                      <td className="py-3 text-right text-[11px] text-gray-400">{pos.openDate}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* RESUMEN TOTAL FLOTANTE */}
+            <div className={`mt-2 p-4 rounded-xl border ${totalPnl >= 0 ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"}`}>
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-bold text-white">📊 Total Flotante de tu Cartera:</div>
+                <div className={`text-lg font-extrabold font-mono ${totalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                  {totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(2)} USD
+                  <span className="text-xs ml-1 opacity-70">({totalPnlPct >= 0 ? "+" : ""}{totalPnlPct.toFixed(2)}%)</span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between mt-2 text-xs text-gray-400">
+                <span>💰 Margen en Uso: <b className="text-white">${totalMargin.toFixed(2)}</b></span>
+                <span>💵 Liquidez Libre: <b className="text-white">${(userBalance - totalMargin).toFixed(2)}</b></span>
+                <span>🏦 Valor Cartera: <b className="text-white">${(userBalance + totalPnl).toFixed(2)}</b></span>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* HISTORIAL DE TRADES CERRADOS RECIENTES DE LOS TRADERS */}
+      {recentTrades.length > 0 && (
+        <div className="p-6 rounded-2xl bg-surface border border-surface-border space-y-4">
+          <h2 className="text-lg font-bold text-white">📜 Historial Reciente de Operaciones Cerradas (Copy Estimado)</h2>
+          <p className="text-[11px] text-gray-400 -mt-2">Últimos trades cerrados por los traders de tu cesta, con el PnL estimado según tu asignación de capital.</p>
+          <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+            {recentTrades.map((trade, idx) => (
+              <div key={idx} className="p-3 rounded-xl bg-background/60 border border-surface-border flex items-center justify-between hover:border-gray-700 transition-colors">
+                <div className="flex items-center space-x-3">
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${trade.myPnl >= 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>
+                    {trade.myPnl >= 0 ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
+                  </div>
+                  <div>
+                    <div className="font-bold text-sm text-white">{trade.coin} <span className="text-xs font-normal text-gray-400">• {trade.traderName}</span></div>
+                    <div className="text-[10px] text-gray-500">{trade.time} • {trade.dir}</div>
+                  </div>
+                </div>
+                <div className={`font-bold text-sm font-mono ${trade.myPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                  {trade.myPnl >= 0 ? "+" : ""}${trade.myPnl.toFixed(2)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

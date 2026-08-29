@@ -1,8 +1,8 @@
 {
-  "lastAudited": "29/08/2026 20:32:22",
-  "totalScanned": 18000,
-  "totalPassed": 38,
-  "totalFailed": 17962,
+  "lastAudited": "29/08/2026 20:39:36",
+  "totalScanned": 18250,
+  "totalPassed": 39,
+  "totalFailed": 18211,
   "mode": "100%_FULL_CENSUS_ONCHAIN_SQLITE",
   "traders": [
     {
@@ -1831,6 +1831,69 @@
         }
       ],
       "strategy": "Operativa en TST, HMSTR, PURR. Ratio B/P 99.0x. \ud83c\udf26\ufe0f Todoterreno (Bull & Bear)."
+    },
+    {
+      "address": "0x026947c2867503151e19898057c1146f990266bd",
+      "name": "Trader 0x0269 (HYPE)",
+      "score": "9.9",
+      "passedFilter": true,
+      "filterAuditReason": "\u2b50 APROBADO: Win Rate 100.0% en 422 trades, Profit Factor 99.00x, Sortino 9.9, Drawdown -0.00%, Expectativa +$272/trade, 0% p\u00e9rdidas flotantes en HYPE, ZEC, @151.",
+      "accountValue": 130272.4,
+      "winRate": 100.0,
+      "profitFactor": 99.0,
+      "sortinoRatio": 9.9,
+      "expectancyUSD": 272.13,
+      "maxConsecutiveWins": 422,
+      "maxConsecutiveLosses": 0,
+      "luckyTradePct": 3.6,
+      "marketRegime": "\ud83c\udf26\ufe0f Todoterreno (Bull & Bear)",
+      "bestSession": "Sesi\u00f3n Nueva York",
+      "tradingStyle": "\u23f1\ufe0f Day Trading Intradiario",
+      "maxDrawdownPct": 0.0,
+      "totalFills": 696,
+      "closedTradesCount": 422,
+      "netPnlTotal": 114840.73,
+      "monthPnl": 0.0,
+      "monthRoi": 0.0,
+      "monthWinRate": 100.0,
+      "weekPnl": 0.0,
+      "weekWinRate": 100.0,
+      "floatingLossPct": 0.0,
+      "marginUtilizationPct": 0.0,
+      "topAssets": "HYPE, ZEC, @151",
+      "anomalies": [
+        {
+          "test": "Distribuci\u00f3n de Ganancias",
+          "status": "PASS",
+          "detail": "Ganancias 100% org\u00e1nicas."
+        },
+        {
+          "test": "Anti-Martingala",
+          "status": "PASS",
+          "detail": "Gesti\u00f3n de tama\u00f1o disciplinada."
+        },
+        {
+          "test": "P\u00e9rdidas Flotantes",
+          "status": "PASS",
+          "detail": "0% p\u00e9rdidas ocultas en posiciones abiertas."
+        },
+        {
+          "test": "Ratio Riesgo/Beneficio",
+          "status": "PASS",
+          "detail": "Relaci\u00f3n equilibrada (99.00x)."
+        },
+        {
+          "test": "Solvencia de Margen",
+          "status": "PASS",
+          "detail": "Margen en uso seguro (0.0%)."
+        },
+        {
+          "test": "Control de Rachas",
+          "status": "PASS",
+          "detail": "M\u00e1x 0 p\u00e9rdidas seguidas."
+        }
+      ],
+      "strategy": "Operativa en HYPE, ZEC, @151. Ratio B/P 99.0x. \ud83c\udf26\ufe0f Todoterreno (Bull & Bear)."
     },
     {
       "address": "0x20378ca729e0d942d9faecdca367dc2a01197aa7",
@@ -15691,69 +15754,6 @@
         }
       ],
       "strategy": "Operativa en AERO. Ratio B/P 99.0x. \ud83d\udcc9 Cobertura (Shorts)."
-    },
-    {
-      "address": "0x009ae54bf26fccaa4c5a1443ebded3e472849371",
-      "name": "Trader 0x009a (SOL)",
-      "score": "4.0",
-      "passedFilter": false,
-      "filterAuditReason": "\u274c DESCARTADO: P\u00e9rdida flotante abierta del -79.9%.; Margen en uso excesivo (81.3%).; Fall\u00f3 tests forenses: Golpe de Suerte \u00danico, P\u00e9rdidas Flotantes, Sobreapalancamiento.",
-      "accountValue": 80835.56,
-      "winRate": 100.0,
-      "profitFactor": 99.0,
-      "sortinoRatio": 9.9,
-      "expectancyUSD": 2077.36,
-      "maxConsecutiveWins": 20,
-      "maxConsecutiveLosses": 0,
-      "luckyTradePct": 82.6,
-      "marketRegime": "\ud83d\udcc9 Cobertura (Shorts)",
-      "bestSession": "Sesi\u00f3n Nueva York",
-      "tradingStyle": "\ud83c\udf0a Swing Trading de Posici\u00f3n",
-      "maxDrawdownPct": 0.0,
-      "totalFills": 85,
-      "closedTradesCount": 20,
-      "netPnlTotal": 41547.25,
-      "monthPnl": 0.0,
-      "monthRoi": 0.0,
-      "monthWinRate": 100.0,
-      "weekPnl": 0.0,
-      "weekWinRate": 100.0,
-      "floatingLossPct": -79.9,
-      "marginUtilizationPct": 81.3,
-      "topAssets": "SOL",
-      "anomalies": [
-        {
-          "test": "Golpe de Suerte \u00danico",
-          "status": "FAIL",
-          "detail": "Un solo trade concentr\u00f3 el 82.6% de las ganancias."
-        },
-        {
-          "test": "Anti-Martingala",
-          "status": "PASS",
-          "detail": "Gesti\u00f3n de tama\u00f1o disciplinada."
-        },
-        {
-          "test": "P\u00e9rdidas Flotantes",
-          "status": "FAIL",
-          "detail": "P\u00e9rdida abierta de -79.9% del capital."
-        },
-        {
-          "test": "Ratio Riesgo/Beneficio",
-          "status": "PASS",
-          "detail": "Relaci\u00f3n equilibrada (99.00x)."
-        },
-        {
-          "test": "Sobreapalancamiento",
-          "status": "FAIL",
-          "detail": "Margen en uso elevado (81.3%)."
-        },
-        {
-          "test": "Control de Rachas",
-          "status": "PASS",
-          "detail": "M\u00e1x 0 p\u00e9rdidas seguidas."
-        }
-      ],
-      "strategy": "Operativa en SOL. Ratio B/P 99.0x. \ud83d\udcc9 Cobertura (Shorts)."
     }
   ]
 }

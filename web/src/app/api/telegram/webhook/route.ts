@@ -148,56 +148,84 @@ No necesitas buscar direcciones manualmente; puedo escanear todo el exchange por
 
         for (const rule of copyRules) {
           try {
-            const stRes = await fetch(HYPERLIQUID_INFO_URL, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ type: "clearinghouseState", user: rule.address }),
-            });
+            // Obtener estado y fills en paralelo
+            const [stRes, fillsRes] = await Promise.all([
+              fetch(HYPERLIQUID_INFO_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ type: "clearinghouseState", user: rule.address }),
+              }),
+              fetch(HYPERLIQUID_INFO_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ type: "userFills", user: rule.address }),
+              }),
+            ]);
+
             if (stRes.ok) {
               const stData = await stRes.json();
+              const fills = fillsRes.ok ? await fillsRes.json() : [];
               const traderAccountValue = parseFloat(stData?.marginSummary?.accountValue || "100000");
               const positions = stData?.assetPositions || [];
+
+              // Mapa de la fecha de apertura más antigua por moneda
+              const openDates: Record<string, number> = {};
+              if (Array.isArray(fills)) {
+                for (const f of fills) {
+                  const coin = f.coin || "";
+                  const t = f.time || 0;
+                  if (coin && t && (!openDates[coin] || t < openDates[coin])) {
+                    openDates[coin] = t;
+                  }
+                }
+              }
 
               positions.forEach((p: any) => {
                 const pos = p.position || {};
                 const szi = parseFloat(pos.szi || "0");
                 const entryPx = parseFloat(pos.entryPx || "0");
                 const unrealizedPnl = parseFloat(pos.unrealizedPnl || "0");
+                const coin = pos.coin || "Crypto";
 
                 if (szi !== 0 && entryPx > 0) {
-                  // CÁLCULO DE LA POSICIÓN COPIADA PERSONALIZADA PARA EL USUARIO
                   const traderPosNotional = Math.abs(szi) * entryPx;
                   const fractionOfEquity = traderAccountValue > 0 ? (traderPosNotional / traderAccountValue) : 0.1;
                   const userPosFraction = Math.min(fractionOfEquity * rule.riskMult, rule.maxSizingPct / 100);
-                  
+
                   const userAssignedCapital = userTotalBalance * (rule.allocationPct / 100);
                   const myNotionalUSD = userAssignedCapital * userPosFraction;
                   const myLeverage = Math.min(pos.leverage?.value || 10, rule.maxLev);
                   const myMarginUSD = myNotionalUSD / myLeverage;
                   const myQuantity = myNotionalUSD / entryPx;
 
-                  // PnL proporcional en USD del usuario
                   const pnlFractionOfTrader = traderAccountValue > 0 ? (unrealizedPnl / traderAccountValue) : 0;
                   const myUnrealizedPnlUSD = userAssignedCapital * pnlFractionOfTrader;
                   const myPnlPct = myMarginUSD > 0 ? (myUnrealizedPnlUSD / myMarginUSD) * 100 : 0;
 
-                  // Stop loss personalizado del usuario
                   const slMultiplier = (rule.stopLossPct / 100) / myLeverage;
                   const myStopLossPrice = szi > 0 ? entryPx * (1 - slMultiplier) : entryPx * (1 + slMultiplier);
 
+                  // Fecha de apertura
+                  let openDateStr = "—";
+                  if (openDates[coin]) {
+                    const d = new Date(openDates[coin]);
+                    openDateStr = `${d.getDate().toString().padStart(2, "0")}/${(d.getMonth() + 1).toString().padStart(2, "0")} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+                  }
+
                   myCopiedPositions.push({
                     traderName: rule.name,
-                    coin: pos.coin || "Crypto",
+                    coin,
                     side: szi > 0 ? "LONG" : "SHORT",
                     myLeverage,
-                    myMarginUSD: myMarginUSD.toFixed(2),
+                    myMarginUSD: parseFloat(myMarginUSD.toFixed(2)),
                     myNotionalUSD: myNotionalUSD.toFixed(2),
                     myQuantity: myQuantity.toFixed(4),
                     entryPx: entryPx.toFixed(2),
                     myStopLossPrice: myStopLossPrice.toFixed(2),
-                    myUnrealizedPnlUSD: myUnrealizedPnlUSD.toFixed(2),
+                    myUnrealizedPnlUSD: parseFloat(myUnrealizedPnlUSD.toFixed(2)),
                     myPnlPct: myPnlPct.toFixed(2),
                     isProfit: myUnrealizedPnlUSD >= 0,
+                    openDate: openDateStr,
                   });
                 }
               });
@@ -219,18 +247,34 @@ No necesitas buscar direcciones manualmente; puedo escanear todo el exchange por
 👉 <i>Ver panel web: <a href="${APP_URL}/dashboard">Ir al Dashboard</a></i>`;
           await sendTelegramReply(chatId, msg);
         } else {
+          let totalFloatingPnl = 0;
+          let totalMarginInvested = 0;
+
           let msg = `📊 <b>Tus Posiciones Copiadas en Tiempo Real (${myCopiedPositions.length}):</b>\n\n`;
           myCopiedPositions.forEach((p: any) => {
+            totalFloatingPnl += p.myUnrealizedPnlUSD;
+            totalMarginInvested += p.myMarginUSD;
+
             const icon = p.isProfit ? "🟢" : "🔴";
             msg += `${icon} <b>${p.coin} ${p.side} ${p.myLeverage}x (Tu Réplica)</b>
-• <b>Trader Origen:</b> ${p.traderName}
-• <b>Tu Margen Invertido:</b> <b>$${p.myMarginUSD} USD</b>
-• <b>Tu Tamaño Replicado:</b> ${p.myQuantity} ${p.coin} ($${p.myNotionalUSD} USD)
-• <b>Precio de Entrada:</b> $${p.entryPx}
-• <b>Tu Stop-Loss Personal:</b> $${p.myStopLossPrice}
-• <b>Tu Beneficio Flotante:</b> <b>${p.isProfit ? "+" : ""}$${p.myUnrealizedPnlUSD} USD (${p.isProfit ? "+" : ""}${p.myPnlPct}%)</b>\n\n`;
+• <b>Trader:</b> ${p.traderName}
+• <b>Tu Margen:</b> <b>$${p.myMarginUSD.toFixed(2)} USD</b> | Tamaño: ${p.myQuantity} ${p.coin}
+• <b>Entrada:</b> $${p.entryPx} | <b>Stop-Loss:</b> $${p.myStopLossPrice}
+• <b>Tu PnL:</b> <b>${p.isProfit ? "+" : ""}$${p.myUnrealizedPnlUSD.toFixed(2)} USD (${p.isProfit ? "+" : ""}${p.myPnlPct}%)</b>
+• 📅 <b>Abierta:</b> ${p.openDate}\n\n`;
           });
-          msg += `<i>🛡️ Posiciones calculadas según tus reglas y asignación sobre tus $10,000 USD.</i>`;
+
+          // RESUMEN TOTAL FLOTANTE
+          const totalIcon = totalFloatingPnl >= 0 ? "🟢" : "🔴";
+          const totalPnlPct = totalMarginInvested > 0 ? ((totalFloatingPnl / totalMarginInvested) * 100).toFixed(2) : "0.00";
+          const liquidezLibre = userTotalBalance - totalMarginInvested;
+
+          msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${totalIcon} <b>TOTAL FLOTANTE:</b> <b>${totalFloatingPnl >= 0 ? "+" : ""}$${totalFloatingPnl.toFixed(2)} USD (${totalFloatingPnl >= 0 ? "+" : ""}${totalPnlPct}%)</b>
+💰 <b>Margen en Uso:</b> $${totalMarginInvested.toFixed(2)} USD
+💵 <b>Liquidez Libre:</b> $${liquidezLibre.toFixed(2)} USD
+🏦 <b>Valor Estimado Cartera:</b> <b>$${(userTotalBalance + totalFloatingPnl).toFixed(2)} USD</b>`;
+
           await sendTelegramReply(chatId, msg);
         }
       } catch (err: any) {
