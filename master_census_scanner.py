@@ -1,29 +1,25 @@
+#!/usr/bin/env python3
 """
-master_census_scanner.py
-Motor de Censo Masivo 100% On-Chain de Hyperliquid con SQLite & Checkpointing.
-Audita el 100% de las 43.000+ cuentas registradas en Hyperliquid:
-- 0 Prefiltros: Analiza todas las cuentas una por una.
-- Almacenamiento continuo en SQLite (reanudación indestructible).
-- Batería forense de 8 tests de detección de trampas por cuenta.
-- Métricas institucionales: Sortino, Sharpe, Calmar, Expectativa ($/trade), Rachas.
-- Dashboard de progreso en vivo con ETA en la consola.
-- 1-Click Sync con GitHub y Vercel.
+========================================================================================
+  🧠 MOTOR DE CENSO MASIVO TOTAL ON-CHAIN HYPERLIQUID (44.000+ CUENTAS)
+  Auditoría Forense Cuantitativa, Detección de Anomalías y Etiquetado Institucional
+========================================================================================
 """
 
-import json
-import time
 import os
 import sys
+import time
+import json
 import sqlite3
-import subprocess
-import threading
 import requests
-from datetime import datetime
+import threading
+import subprocess
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-DB_PATH = "data/hyperliquid_master.db"
-LEADERBOARD_URL = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard"
 INFO_URL = "https://api.hyperliquid.xyz/info"
+LEADERBOARD_URL = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard"
+DB_PATH = "data/hyperliquid_master.db"
 OUTPUT_WEB_JSON = "web/src/data/verified_traders.json"
 OUTPUT_ROOT_JSON = "verified_traders.json"
 
@@ -32,37 +28,38 @@ IGNORED_ADDRESSES = {
     "0x0000000000000000000000000000000000000000",
 }
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Content-Type": "application/json",
-}
-
-# Control de Tasa Global (Token Bucket / Rate Limiter seguro a ~10-11 req/s)
-class RateLimiter:
-    def __init__(self, target_rate=10.5):
+# Control de Tasa Global (Token / Leaky Bucket seguro y sin bloqueos de mutex)
+class SafeRateLimiter:
+    def __init__(self, target_rate=4.5):
         self.interval = 1.0 / target_rate
-        self.last_time = time.time()
+        self.next_time = time.time()
         self.lock = threading.Lock()
         self.pause_until = 0
 
     def wait(self):
         with self.lock:
             now = time.time()
-            if now < self.pause_until:
-                sleep_needed = self.pause_until - now
-                time.sleep(sleep_needed)
-                now = time.time()
+            scheduled = max(now, self.next_time, self.pause_until)
+            self.next_time = scheduled + self.interval
 
-            elapsed = now - self.last_time
-            if elapsed < self.interval:
-                time.sleep(self.interval - elapsed)
-            self.last_time = time.time()
+        delay = scheduled - now
+        if delay > 0:
+            time.sleep(delay)
 
-    def signal_429(self, cooldown=6.0):
+    def signal_429(self, cooldown=12.0):
         with self.lock:
-            self.pause_until = time.time() + cooldown
+            now = time.time()
+            self.pause_until = max(self.pause_until, now + cooldown)
+            self.next_time = max(self.next_time, now + cooldown)
 
-rate_limiter = RateLimiter(target_rate=10.5)
+rate_limiter = SafeRateLimiter(target_rate=4.5)
+
+# Sesión HTTP persistente con connection pooling
+http_session = requests.Session()
+http_session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Content-Type": "application/json",
+})
 
 def init_database():
     os.makedirs("data", exist_ok=True)
@@ -103,6 +100,22 @@ def init_database():
             audited_at TEXT
         )
     """)
+
+    # Migración: Añadir nuevas columnas si no existen
+    columns_to_add = [
+        ("calmar_ratio", "REAL"),
+        ("asset_concentration_btc_eth_sol", "REAL"),
+        ("peak_leverage_real", "REAL"),
+        ("avg_leverage_real", "REAL"),
+        ("tags_json", "TEXT")
+    ]
+    cur.execute("PRAGMA table_info(audited_traders)")
+    existing_cols = {row[1] for row in cur.fetchall()}
+    for col_name, col_type in columns_to_add:
+        if col_name not in existing_cols:
+            print(f"📦 Migrando base de datos: Añadiendo columna {col_name} ({col_type})...")
+            cur.execute(f"ALTER TABLE audited_traders ADD COLUMN {col_name} {col_type}")
+
     conn.commit()
     conn.close()
 
@@ -111,17 +124,27 @@ def get_already_audited_addresses():
         return set()
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("SELECT address FROM audited_traders")
+    cur.execute("SELECT address FROM audited_traders WHERE calmar_ratio IS NOT NULL")
     rows = cur.fetchall()
     conn.close()
     return {r[0].lower() for r in rows}
 
 def save_trader_to_db(t):
-    conn = sqlite3.connect(DB_PATH, timeout=20)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     cur = conn.cursor()
     cur.execute("""
-        INSERT OR REPLACE INTO audited_traders VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        INSERT OR REPLACE INTO audited_traders (
+            address, name, score, passed_filter, filter_reason, account_value,
+            win_rate, profit_factor, sortino_ratio, expectancy_usd,
+            max_consecutive_wins, max_consecutive_losses, lucky_trade_pct,
+            market_regime, best_session, trading_style, max_drawdown_pct,
+            total_fills, closed_trades_count, net_pnl_total, month_pnl,
+            month_roi, month_win_rate, week_pnl, week_win_rate,
+            floating_loss_pct, margin_utilization_pct, top_assets,
+            anomalies_json, strategy, audited_at,
+            calmar_ratio, asset_concentration_btc_eth_sol, peak_leverage_real, avg_leverage_real, tags_json
+        ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         )
     """, (
         t["address"].lower(),
@@ -152,9 +175,14 @@ def save_trader_to_db(t):
         t["floatingLossPct"],
         t["marginUtilizationPct"],
         t["topAssets"],
-        json.dumps(t["anomalies"]),
+        json.dumps(t.get("anomalies", [])),
         t["strategy"],
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        t.get("calmarRatio", 0.0),
+        t.get("assetConcentrationBtcEthSol", 0.0),
+        t.get("peakLeverageReal", 1.0),
+        t.get("avgLeverageReal", 1.0),
+        json.dumps(t.get("tags", []))
     ))
     conn.commit()
     conn.close()
@@ -163,32 +191,37 @@ def query_info_api(payload, max_retries=3):
     for attempt in range(max_retries):
         rate_limiter.wait()
         try:
-            resp = requests.post(INFO_URL, json=payload, headers=HEADERS, timeout=12)
+            resp = http_session.post(INFO_URL, json=payload, timeout=12)
             if resp.status_code == 200:
-                return resp.json()
+                data = resp.json()
+                if data is not None and not (isinstance(data, str) and "rate limited" in data.lower()):
+                    return data
             elif resp.status_code == 429:
-                rate_limiter.signal_429(cooldown=5.0 + attempt * 2.0)
+                rate_limiter.signal_429(cooldown=10.0 + attempt * 5.0)
+                time.sleep(1.0)
                 continue
         except Exception:
             pass
 
+        # Fallback rápido vía curl si falla la sesión
         try:
-            cmd = ["curl", "-s", "-X", "POST", INFO_URL, "-H", "Content-Type: application/json", "-d", json.dumps(payload)]
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-            if proc.returncode == 0 and proc.stdout and not proc.stdout.startswith("rate limited"):
+            cmd = ["curl", "-s", "--max-time", "12", "-X", "POST", INFO_URL, "-H", "Content-Type: application/json", "-d", json.dumps(payload)]
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=14)
+            if proc.returncode == 0 and proc.stdout and "rate limited" not in proc.stdout.lower() and proc.stdout.strip() != "null":
                 return json.loads(proc.stdout)
-            elif "rate limited" in proc.stdout:
-                rate_limiter.signal_429(cooldown=5.0 + attempt * 2.0)
+            elif "rate limited" in proc.stdout.lower():
+                rate_limiter.signal_429(cooldown=10.0 + attempt * 5.0)
+                time.sleep(1.0)
         except Exception:
             pass
 
-        time.sleep(0.5)
+        time.sleep(0.3)
     return None
 
 def fetch_all_leaderboard_accounts():
-    print("\n📡 Descargando el censo completo de Hyperliquid (43.000+ cuentas)...")
+    print("\n📡 Descargando el censo completo de Hyperliquid (44.000+ cuentas)...")
     try:
-        proc = subprocess.run(["curl", "-s", LEADERBOARD_URL], capture_output=True, text=True, timeout=25)
+        proc = subprocess.run(["curl", "-s", "--compressed", LEADERBOARD_URL], capture_output=True, text=True, timeout=30)
         if proc.returncode == 0 and proc.stdout:
             data = json.loads(proc.stdout)
             rows = data.get("leaderboardRows", [])
@@ -198,7 +231,7 @@ def fetch_all_leaderboard_accounts():
         pass
 
     try:
-        resp = requests.get(LEADERBOARD_URL, headers=HEADERS, timeout=25)
+        resp = requests.get(LEADERBOARD_URL, headers=http_session.headers, timeout=30)
         if resp.status_code == 200:
             rows = resp.json().get("leaderboardRows", [])
             print(f"✅ Descargadas {len(rows):,} cuentas vía requests.")
@@ -208,23 +241,35 @@ def fetch_all_leaderboard_accounts():
 
     return []
 
-def audit_single_account_forensic(address):
+def audit_single_account_forensic(address, leader_row=None):
     addr = address.lower().strip()
     if addr in IGNORED_ADDRESSES:
         return None
 
     try:
+        # Extraer métricas previas del leaderboard si existen
+        lb_account_val = 0.0
+        lb_all_pnl = 0.0
+        lb_month_pnl = 0.0
+        lb_week_pnl = 0.0
+
+        if leader_row:
+            lb_account_val = float(leader_row.get("accountValue", 0))
+            windows = dict(leader_row.get("windowPerformances", []))
+            lb_all_pnl = float(windows.get("allTime", {}).get("pnl", 0))
+            lb_month_pnl = float(windows.get("month", {}).get("pnl", 0))
+            lb_week_pnl = float(windows.get("week", {}).get("pnl", 0))
+
         # 1. Estado en tiempo real
         user_state = query_info_api({"type": "clearinghouseState", "user": addr})
         if not user_state or not isinstance(user_state, dict):
-            # Guardar como cuenta sin actividad
             return {
                 "address": addr,
                 "name": f"Cuenta {addr[:6]}",
                 "score": "1.0",
                 "passedFilter": False,
-                "filterAuditReason": "❌ Cuenta inactiva o sin saldo en Hyperliquid.",
-                "accountValue": 0.0,
+                "filterAuditReason": f"❌ Saldo o PnL insuficiente en Hyperliquid (${lb_account_val:,.0f}).",
+                "accountValue": round(lb_account_val, 2),
                 "winRate": 0.0,
                 "profitFactor": 0.0,
                 "sortinoRatio": 0.0,
@@ -238,17 +283,22 @@ def audit_single_account_forensic(address):
                 "maxDrawdownPct": 0.0,
                 "totalFills": 0,
                 "closedTradesCount": 0,
-                "netPnlTotal": 0.0,
-                "monthPnl": 0.0,
+                "netPnlTotal": round(lb_all_pnl, 2),
+                "monthPnl": round(lb_month_pnl, 2),
                 "monthRoi": 0.0,
                 "monthWinRate": 0.0,
-                "weekPnl": 0.0,
+                "weekPnl": round(lb_week_pnl, 2),
                 "weekWinRate": 0.0,
                 "floatingLossPct": 0.0,
                 "marginUtilizationPct": 0.0,
                 "topAssets": "N/A",
                 "anomalies": [{"test": "Actividad", "status": "FAIL", "detail": "Sin datos de margen activos."}],
                 "strategy": "Inactivo.",
+                "calmarRatio": 0.0,
+                "assetConcentrationBtcEthSol": 0.0,
+                "peakLeverageReal": 1.0,
+                "avgLeverageReal": 1.0,
+                "tags": []
             }
 
         account_value = float(user_state.get("marginSummary", {}).get("accountValue", 0))
@@ -296,7 +346,7 @@ def audit_single_account_forensic(address):
                 else:
                     short_pnls.append(pnl)
 
-                dt = datetime.utcfromtimestamp(t_ms / 1000)
+                dt = datetime.fromtimestamp(t_ms / 1000, tz=timezone.utc)
                 hour = dt.hour
                 if 0 <= hour < 8: session_pnls["Asia"] += pnl
                 elif 8 <= hour < 14: session_pnls["Londres"] += pnl
@@ -355,6 +405,24 @@ def audit_single_account_forensic(address):
             dd = ((peak - curr) / peak) * 100.0
             if dd > max_dd_pct: max_dd_pct = dd
 
+        # Calcular el rango histórico en días
+        fill_times = [f.get("time", 0) for f in fills if f.get("time")]
+        history_days = (max(fill_times) - min(fill_times)) / (24 * 3600 * 1000.0) if len(fill_times) > 1 else 0.0
+
+        # Ratio de Calmar (anualizado)
+        roi = (net_pnl / account_value) if account_value > 0 else 0.0
+        annualized_roi = (roi * (365.0 / history_days) * 100.0) if history_days > 0.0 else 0.0
+        calmar_ratio = (annualized_roi / max_dd_pct) if (max_dd_pct > 0 and history_days > 0) else 9.9
+        calmar_ratio = max(min(calmar_ratio, 99.0), -99.0)
+
+        # Concentración de Activos en Blue Chips (BTC/ETH/SOL)
+        btc_eth_sol_count = sum(1 for f in fills if str(f.get("coin", "")).upper() in ["BTC", "ETH", "SOL"])
+        asset_concentration_btc_eth_sol = (btc_eth_sol_count / len(fills) * 100) if fills else 0.0
+
+        # Estimar apalancamiento real (nominal máximo respecto al balance)
+        peak_leverage = (max(notionals) / account_value) if (account_value > 0 and notionals) else 1.0
+        avg_leverage = (sum(notionals) / len(notionals) / account_value) if (account_value > 0 and notionals) else 1.0
+
         # Régimen de Mercado
         long_pnl_total = sum(long_pnls)
         short_pnl_total = sum(short_pnls)
@@ -405,7 +473,7 @@ def audit_single_account_forensic(address):
         if max_consecutive_losses >= 6: anomalies.append({"test": "Rachas de Pérdidas", "status": "WARNING", "detail": f"Racha máxima de {max_consecutive_losses} pérdidas seguidas."})
         else: anomalies.append({"test": "Control de Rachas", "status": "PASS", "detail": f"Máx {max_consecutive_losses} pérdidas seguidas."})
 
-        # CRITERIOS ESTRICTOS DE APROBACIÓN CUANTITATIVA
+        # CRITERIOS ESTRICTOS DE APROBACIÓN CUANTITATIVA (Endurecidos según PDF)
         passed_filter = True
         reasons = []
 
@@ -418,9 +486,12 @@ def audit_single_account_forensic(address):
         if margin_utilization_pct > 45.0:
             passed_filter = False
             reasons.append(f"Margen en uso excesivo ({margin_utilization_pct:.1f}%).")
-        if total_closed < 15:
+        if total_closed < 100:
             passed_filter = False
-            reasons.append(f"Muestra estadística insuficiente ({total_closed} trades).")
+            reasons.append(f"Muestra estadística insuficiente ({total_closed} trades, req >= 100).")
+        if history_days < 90.0:
+            passed_filter = False
+            reasons.append(f"Historial temporal insuficiente ({history_days:.1f} días, req >= 90).")
         if net_pnl <= 0:
             passed_filter = False
             reasons.append(f"PnL neto histórico negativo (-${abs(net_pnl):,.0f}).")
@@ -433,10 +504,55 @@ def audit_single_account_forensic(address):
         if max_dd_pct > 25.0:
             passed_filter = False
             reasons.append(f"Drawdown excesivo (-{max_dd_pct:.1f}%).")
+        if sortino_ratio < 1.20:
+            passed_filter = False
+            reasons.append(f"Ratio de Sortino bajo ({sortino_ratio:.2f}, req >= 1.20).")
+        if calmar_ratio < 1.00:
+            passed_filter = False
+            reasons.append(f"Ratio de Calmar bajo ({calmar_ratio:.2f}, req >= 1.00).")
+        if peak_leverage > 10.0:
+            passed_filter = False
+            reasons.append(f"Apalancamiento real pico excesivo ({peak_leverage:.1f}x, req <= 10x).")
         if any(a["status"] == "FAIL" for a in anomalies):
             passed_filter = False
             failed_tests = [a["test"] for a in anomalies if a["status"] == "FAIL"]
             reasons.append(f"Falló tests forenses: {', '.join(failed_tests)}.")
+
+        # ASIGNACIÓN DE ETIQUETAS (TAGS) SEGÚN PDF
+        tags = []
+        is_elite = (
+            passed_filter and 
+            sortino_ratio >= 2.0 and 
+            calmar_ratio >= 2.5 and 
+            max_dd_pct <= 12.0 and 
+            asset_concentration_btc_eth_sol >= 80.0 and 
+            history_days >= 180.0
+        )
+        if is_elite:
+            tags.append("Élite 👑")
+        
+        if avg_leverage <= 3.0 and max_dd_pct <= 10.0 and passed_filter and not any("Martingala" in a["test"] and a["status"] == "FAIL" for a in anomalies):
+            tags.append("Conservador 🛡️")
+            
+        if total_closed >= 500:
+            tags.append("Scalper ⚡")
+        elif total_closed < 80:
+            tags.append("Swing Trader 🌊")
+            
+        if lucky_trade_pct >= 25.0:
+            tags.append("Golpe de Suerte 🎰")
+            
+        if any("Martingala" in a["test"] and a["status"] == "FAIL" for a in anomalies):
+            tags.append("Martingala ⚠️")
+            
+        if peak_leverage > 10.0:
+            tags.append("Sobreapalancado ⚠️")
+            
+        if floating_loss_pct <= -15.0:
+            tags.append("Pérdida Oculta 🩹")
+            
+        if asset_concentration_btc_eth_sol < 40.0:
+            tags.append("Meme Trader 🃏")
 
         top_assets = [k for k, _ in sorted(coin_counts.items(), key=lambda x: x[1], reverse=True)[:3]]
         top_assets_str = ", ".join(top_assets) if top_assets else "Crypto"
@@ -445,7 +561,7 @@ def audit_single_account_forensic(address):
             audit_explanation = (
                 f"⭐ APROBADO: Win Rate {win_rate:.1f}% en {total_closed} trades, "
                 f"Profit Factor {profit_factor:.2f}x, Sortino {sortino_ratio:.1f}, Drawdown -{max_dd_pct:.2f}%, "
-                f"Expectativa +${expectancy_usd:.0f}/trade, 0% pérdidas flotantes en {top_assets_str}."
+                f"Expectativa +${expectancy_usd:.0f}/trade, Calmar {calmar_ratio:.1f} en {top_assets_str}."
             )
             score = 9.0 + min((win_rate - 75) / 25, 0.9)
         else:
@@ -492,8 +608,13 @@ def audit_single_account_forensic(address):
             "topAssets": top_assets_str,
             "anomalies": anomalies,
             "strategy": f"Operativa en {top_assets_str}. Ratio B/P {profit_factor:.1f}x. {market_regime}.",
+            "calmarRatio": round(calmar_ratio, 2),
+            "assetConcentrationBtcEthSol": round(asset_concentration_btc_eth_sol, 1),
+            "peakLeverageReal": round(peak_leverage, 1),
+            "avgLeverageReal": round(avg_leverage, 1),
+            "tags": tags,
         }
-    except Exception:
+    except Exception as e:
         return None
 
 def export_to_web_json():
@@ -511,9 +632,10 @@ def export_to_web_json():
     cur.execute("SELECT COUNT(*) FROM audited_traders WHERE passed_filter = 1")
     total_passed = cur.fetchone()[0]
 
+    # Cargar los mejores aprobados ordenados por score y profit factor
     cur.execute("""
         SELECT * FROM audited_traders 
-        ORDER BY passed_filter DESC, score DESC, profit_factor DESC 
+        ORDER BY passed_filter DESC, score DESC, profit_factor DESC, account_value DESC 
         LIMIT 250
     """)
     rows = cur.fetchall()
@@ -552,6 +674,11 @@ def export_to_web_json():
             "topAssets": r["top_assets"],
             "anomalies": json.loads(r["anomalies_json"]) if r["anomalies_json"] else [],
             "strategy": r["strategy"],
+            "calmarRatio": r["calmar_ratio"],
+            "assetConcentrationBtcEthSol": r["asset_concentration_btc_eth_sol"],
+            "peakLeverageReal": r["peak_leverage_real"],
+            "avgLeverageReal": r["avg_leverage_real"],
+            "tags": json.loads(r["tags_json"]) if r["tags_json"] else [],
         })
 
     timestamp_now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
@@ -573,49 +700,161 @@ def export_to_web_json():
 def main():
     os.system("clear" if os.name != "nt" else "cls")
     print("=" * 80)
-    print("  🧠 MOTOR DE CENSO MASIVO TOTAL ON-CHAIN HYPERLIQUID (43.000+ CUENTAS)")
+    print("  🧠 MOTOR DE CENSO MASIVO TOTAL ON-CHAIN HYPERLIQUID (44.000+ CUENTAS)")
     print("=" * 80)
-    print("  • 0 Prefiltros: Se auditarán todas las cuentas una por una.")
-    print("  • Base de datos SQLite continua con Checkpointing (Reanudación indestructible).")
-    print("  • Control de flujo a ~10.5 req/s (Cumplimiento estricto de límites).")
+    print("  • Batería forense: Calmar, Sortino, Concentración Blue-Chip y Apalancamiento.")
+    print("  • Sistema de Etiquetado Dinámico (Élite, Conservador, Scalper, Martingala, etc.).")
+    print("  • Base de datos SQLite continua con Checkpointing indestructible.")
     print("=" * 80)
+    print("\n📋 OPCIONES DE EJECUCIÓN:")
+    print("  [1] 🚀 Continuar / Reanudar Censo (Mantiene datos y audita cuentas pendientes)")
+    print("  [2] 🗑️  BORRAR DATOS ANTERIORES y Empezar de Cero (Censo 100% Limpio)")
+    print("  [3] 📊 Solo Exportar y Sincronizar Base de Datos actual a la Web")
+    print("  [0] ❌ Salir")
+    print("-" * 80)
 
-    init_database()
+    try:
+        opcion = input("👉 Elige una opción (1/2/3/0) [por defecto 1]: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print("\nOperación cancelada.")
+        return
+
+    if opcion == "0":
+        print("Operación cancelada.")
+        return
+    elif opcion == "2":
+        confirm = input("\n⚠️  ¿Seguro que deseas BORRAR la base de datos previa y re-auditar todo desde cero? (s/N): ").strip().lower()
+        if confirm == "s":
+            if os.path.exists(DB_PATH):
+                try:
+                    os.remove(DB_PATH)
+                    print(f"🗑️  Base de datos eliminada: '{DB_PATH}'.")
+                except Exception as e:
+                    print(f"⚠️  No se pudo borrar el archivo: {e}")
+            if os.path.exists("hyperliquid_census.db"):
+                try:
+                    os.remove("hyperliquid_census.db")
+                except Exception:
+                    pass
+            init_database()
+            print("✨ Base de datos reinicializada con éxito. Empezando de cero...\n")
+        else:
+            print("Acción cancelada. Continuando en modo normal.\n")
+            init_database()
+    elif opcion == "3":
+        init_database()
+        export_to_web_json()
+        print("✅ Base de datos exportada a JSON con éxito.")
+        sync_web = input("\n🚀 ¿Deseas desplegar y publicar los cambios en tu web en vivo (Vercel)? (S/n): ").strip().lower()
+        if sync_web != "n":
+            print("📦 Compilando y subiendo a Vercel...")
+            subprocess.run(["cd web && npx vercel build --prod --yes && npx vercel deploy --prebuilt --prod --yes"], shell=True)
+            print("🎉 ¡Web en vivo actualizada con éxito!")
+        return
+    else:
+        init_database()
+
     already_audited = get_already_audited_addresses()
-    print(f"\n📂 Base de datos local: {len(already_audited):,} cuentas previamente auditadas.")
+    print(f"📂 Base de datos local: {len(already_audited):,} cuentas con métricas y tags actuales.")
 
     all_rows = fetch_all_leaderboard_accounts()
     if not all_rows:
         print("❌ No se pudo descargar el censo de Hyperliquid.")
         return
 
-    # Extraer todas las direcciones únicas sin filtrar
-    all_addresses = []
+    # Clasificar en Tier 1 (Descarte instantáneo) y Tier 2 (Candidatos para auditoría profunda)
+    tier1_discarded = []
+    tier2_candidates = []
     seen = set()
+
     for r in all_rows:
         addr = r.get("ethAddress")
-        if addr and addr.lower() not in seen and addr.lower() not in IGNORED_ADDRESSES:
-            all_addresses.append(addr.lower())
-            seen.add(addr.lower())
+        if not addr or addr.lower() in seen or addr.lower() in IGNORED_ADDRESSES:
+            continue
+        seen.add(addr.lower())
 
-    total_target = len(all_addresses)
-    pending_addresses = [a for a in all_addresses if a not in already_audited]
+        if addr.lower() in already_audited:
+            continue
 
+        val = float(r.get("accountValue", 0))
+        windows = dict(r.get("windowPerformances", []))
+        all_pnl = float(windows.get("allTime", {}).get("pnl", 0))
+        month_pnl = float(windows.get("month", {}).get("pnl", 0))
+
+        # Criterio inteligente de candidato: saldo real significativo o rentabilidad activa
+        if val >= 5000.0 or (all_pnl > 0 and val >= 1000.0):
+            tier2_candidates.append(r)
+        else:
+            tier1_discarded.append(r)
+
+    total_target = len(seen)
     print(f"\n🎯 Censo Total: {total_target:,} cuentas detectadas en el exchange.")
-    print(f"⏳ Cuentas pendientes de auditar hoy: {len(pending_addresses):,} cuentas.")
+    print(f"⚡ Tier 1 (Cuentas inactivas o $<1k): {len(tier1_discarded):,} (se registran al instante)")
+    print(f"🔬 Tier 2 (Candidatos para Auditoría Forense On-Chain): {len(tier2_candidates):,} cuentas.")
 
-    if not pending_addresses:
-        print("\n🎉 ¡Todas las cuentas del exchange ya están auditadas en tu base de datos local!")
+    # 1. Registrar Tier 1 rápidamente en SQLite sin saturar la red
+    if tier1_discarded:
+        print(f"\n📝 Registrando {len(tier1_discarded):,} cuentas Tier 1 en SQLite...")
+        for r in tier1_discarded:
+            addr = r.get("ethAddress", "").lower()
+            val = float(r.get("accountValue", 0))
+            windows = dict(r.get("windowPerformances", []))
+            all_pnl = float(windows.get("allTime", {}).get("pnl", 0))
+            month_pnl = float(windows.get("month", {}).get("pnl", 0))
+            week_pnl = float(windows.get("week", {}).get("pnl", 0))
+
+            t_obj = {
+                "address": addr,
+                "name": f"Cuenta {addr[:6]}",
+                "score": "1.0" if val < 1000 else "2.0",
+                "passedFilter": False,
+                "filterAuditReason": f"❌ Saldo o PnL histórico insuficiente (${val:,.0f}, PnL ${all_pnl:,.0f}).",
+                "accountValue": round(val, 2),
+                "winRate": 0.0,
+                "profitFactor": 0.0,
+                "sortinoRatio": 0.0,
+                "expectancyUSD": 0.0,
+                "maxConsecutiveWins": 0,
+                "maxConsecutiveLosses": 0,
+                "luckyTradePct": 0.0,
+                "marketRegime": "N/A",
+                "bestSession": "N/A",
+                "tradingStyle": "Inactivo",
+                "maxDrawdownPct": 0.0,
+                "totalFills": 0,
+                "closedTradesCount": 0,
+                "netPnlTotal": round(all_pnl, 2),
+                "monthPnl": round(month_pnl, 2),
+                "monthRoi": 0.0,
+                "monthWinRate": 0.0,
+                "weekPnl": round(week_pnl, 2),
+                "weekWinRate": 0.0,
+                "floatingLossPct": 0.0,
+                "marginUtilizationPct": 0.0,
+                "topAssets": "N/A",
+                "anomalies": [{"test": "Volumen", "status": "FAIL", "detail": "Capital bajo o PnL negativo en leaderboard."}],
+                "strategy": "Inactivo.",
+                "calmarRatio": 0.0,
+                "assetConcentrationBtcEthSol": 0.0,
+                "peakLeverageReal": 1.0,
+                "avgLeverageReal": 1.0,
+                "tags": []
+            }
+            save_trader_to_db(t_obj)
+
+    if not tier2_candidates:
+        print("\n🎉 ¡Todas las cuentas candidatas ya están auditadas en tu base de datos local!")
         export_to_web_json()
         return
 
-    est_seconds = len(pending_addresses) / 5.25 # 2 reqs per account at ~10.5 req/s = ~5.25 accs/sec
-    est_hours = est_seconds / 3600
+    est_seconds = len(tier2_candidates) / 2.25 # 2 reqs per candidate at ~4.5 req/s
+    est_minutes = est_seconds / 60
+    print(f"⏱️ Tiempo estimado para Tier 2: ~{est_minutes:.1f} minutos a ritmo seguro (sin rate limits).")
 
-    print(f"⏱️ Tiempo estimado a ritmo seguro: ~{est_hours:.2f} horas ({int(est_seconds/60)} minutos).")
-    start_confirm = input("\n👉 ¿Deseas iniciar el censo total ahora? (S/n): ").strip().lower()
+    start_confirm = input("\n👉 ¿Deseas iniciar la auditoría forense profunda ahora? (S/n): ").strip().lower()
     if start_confirm == "n":
         print("Operación cancelada.")
+        export_to_web_json()
         return
 
     print("\n🚀 Iniciando motor de extracción y batería forense...\n")
@@ -624,65 +863,70 @@ def main():
     passed_in_session = 0
     last_print_time = time.time()
 
-    # 4 Workers con control de tasa centralizado
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = {executor.submit(audit_single_account_forensic, addr): addr for addr in pending_addresses}
-        
-        try:
-            for future in as_completed(futures):
-                res = future.result()
-                if res:
-                    save_trader_to_db(res)
-                    audited_in_session += 1
-                    if res["passedFilter"]:
-                        passed_in_session += 1
+    # Procesar en lotes con 3 workers para evitar bloqueos y rate limits
+    batch_size = 50
+    for batch_idx in range(0, len(tier2_candidates), batch_size):
+        batch = tier2_candidates[batch_idx:batch_idx + batch_size]
 
-                now = time.time()
-                # Actualizar dashboard en consola cada 1.5 segundos
-                if now - last_print_time >= 1.5 or audited_in_session == len(pending_addresses):
-                    last_print_time = now
-                    total_done = len(already_audited) + audited_in_session
-                    pct = (total_done / total_target) * 100
-                    elapsed = now - start_time
-                    speed = audited_in_session / max(elapsed, 0.1)
-                    remaining = len(pending_addresses) - audited_in_session
-                    eta_sec = remaining / max(speed, 0.01)
-                    eta_str = time.strftime("%Hh %Mm %Ss", time.gmtime(eta_sec))
-                    elapsed_str = time.strftime("%Hh %Mm %Ss", time.gmtime(elapsed))
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {
+                executor.submit(audit_single_account_forensic, r.get("ethAddress"), r): r
+                for r in batch
+            }
 
-                    bar_len = 30
-                    filled = int(bar_len * (total_done / total_target))
-                    bar = "█" * filled + "░" * (bar_len - filled)
+            try:
+                for future in as_completed(futures):
+                    res = future.result()
+                    if res:
+                        save_trader_to_db(res)
+                        audited_in_session += 1
+                        if res["passedFilter"]:
+                            passed_in_session += 1
 
-                    sys.stdout.write(
-                        f"\r📊 [{bar}] {pct:.2f}% | "
-                        f"Auditadas: {total_done:,}/{total_target:,} | "
-                        f"⭐ Aprobados: {passed_in_session} | "
-                        f"⚡ {speed*2:.1f} req/s | "
-                        f"⏱️ Transcurrido: {elapsed_str} | ⏳ ETA: {eta_str}  "
-                    )
-                    sys.stdout.flush()
+                    now = time.time()
+                    if now - last_print_time >= 1.0 or audited_in_session == len(tier2_candidates):
+                        last_print_time = now
+                        pct = (audited_in_session / len(tier2_candidates)) * 100
+                        elapsed = now - start_time
+                        speed = audited_in_session / max(elapsed, 0.1)
+                        remaining = len(tier2_candidates) - audited_in_session
+                        eta_sec = remaining / max(speed, 0.01)
+                        eta_str = time.strftime("%Hh %Mm %Ss", time.gmtime(eta_sec))
+                        elapsed_str = time.strftime("%Hh %Mm %Ss", time.gmtime(elapsed))
 
-                # Guardado automático de snapshot para la web cada 250 cuentas
-                if audited_in_session % 250 == 0:
-                    export_to_web_json()
+                        bar_len = 25
+                        filled = int(bar_len * (audited_in_session / len(tier2_candidates)))
+                        bar = "█" * filled + "░" * (bar_len - filled)
 
-        except KeyboardInterrupt:
-            print("\n\n⚠️ Proceso pausado por el usuario (Ctrl + C).")
-            print("💾 Todo el progreso hasta este instante ha quedado guardado en SQLite.")
+                        sys.stdout.write(
+                            f"\r📊 [{bar}] {pct:.1f}% | "
+                            f"Auditadas: {audited_in_session:,}/{len(tier2_candidates):,} | "
+                            f"⭐ Aprobados: {passed_in_session} | "
+                            f"⚡ {speed*2:.1f} req/s | "
+                            f"⏱️ {elapsed_str} | ⏳ ETA: {eta_str}   "
+                        )
+                        sys.stdout.flush()
+
+            except KeyboardInterrupt:
+                print("\n\n⚠️ Proceso pausado por el usuario (Ctrl + C).")
+                print("💾 Todo el progreso hasta este instante ha quedado guardado en SQLite.")
+                break
+
+        # Exportar a la web cada lote
+        export_to_web_json()
 
     export_to_web_json()
     print("\n\n" + "=" * 80)
-    print("  🏆 ¡SESIÓN DE CENSO FINALIZADA!")
-    print(f"  • Total cuentas en base de datos: {len(already_audited) + audited_in_session:,}")
+    print("  🏆 ¡SESIÓN DE CENSO FINALIZADA CON ÉXITO!")
+    print(f"  • Total cuentas en base de datos: {total_target:,}")
     print(f"  • Nuevas aprobadas en esta sesión: {passed_in_session}")
     print("=" * 80)
 
-    sync_input = input("\n🚀 ¿Deseas sincronizar y publicar el ranking en tu web en vivo? (S/n): ").strip().lower()
-    if sync_input != "n":
-        print("📦 Empaquetando y subiendo a Vercel y GitHub...")
-        subprocess.run(["DEVELOPER_DIR=/Library/Developer/CommandLineTools git add web/src/data/verified_traders.json data/hyperliquid_master.db && DEVELOPER_DIR=/Library/Developer/CommandLineTools git commit -m 'Sync 100% full master census dataset' && DEVELOPER_DIR=/Library/Developer/CommandLineTools git push origin main && cd web && npx vercel build --prod --yes && npx vercel deploy --prebuilt --prod --yes"], shell=True)
-        print("🎉 ¡Ranking del censo total publicado en vivo en tu web!")
+    sync_web = input("\n🚀 ¿Deseas desplegar y publicar el nuevo censo en tu web en vivo (Vercel)? (S/n): ").strip().lower()
+    if sync_web != "n":
+        print("📦 Compilando y subiendo a Vercel...")
+        subprocess.run(["cd web && npx vercel build --prod --yes && npx vercel deploy --prebuilt --prod --yes"], shell=True)
+        print("🎉 ¡Web en vivo actualizada con éxito!")
 
 if __name__ == "__main__":
     main()
