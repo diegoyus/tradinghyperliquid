@@ -1,0 +1,16 @@
+{
+  "projectId": "prj_1TPZrmIJ209P0niljBEFh6U0yJsK",
+  "orgId": "team_0zBnkXE3GAzfSjL6rcWgbObf",
+  "projectName": "web",
+  "settings": {
+    "createdAt": 1787956318443,
+    "framework": "nextjs",
+    "devCommand": null,
+    "installCommand": null,
+    "buildCommand": null,
+    "outputDirectory": null,
+    "rootDirectory": null,
+    "directoryListing": false,
+    "nodeVersion": "24.x"
+  }
+}
