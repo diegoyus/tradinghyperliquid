@@ -1,15 +1,15 @@
 """
 paper_bot.py
-Motor de Copy Trading Multi-Trader con Gestión de Riesgo Avanzada, Circuit Breakers y Notificaciones Telegram.
+Motor de Copy Trading Multi-Trader con Gestión de Riesgo Avanzada y Persistencia en SQLite.
 """
 
-import json
 import os
-import time
 import datetime
+import logging
 from typing import Dict, Any, List
 from hyperliquid.info import Info
 from hyperliquid.utils import constants
+import database
 from telegram_notifier import (
     notify_trade_opened,
     notify_trade_closed,
@@ -17,92 +17,54 @@ from telegram_notifier import (
     is_telegram_configured
 )
 
-PORTFOLIO_FILE = "paper_portfolio.json"
-CONFIG_FILE = "traders_config.json"
-DEFAULT_INITIAL_BALANCE = 10_000.0
+# Configuración de Logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+logger = logging.getLogger(__name__)
 
 # Reglas de riesgo globales
-GLOBAL_CIRCUIT_BREAKER_PCT = 15.0  # Si la cartera cae un 15%, detiene la réplica
-MAX_POSITION_STOP_LOSS_PCT = 8.0   # Stop loss máximo independiente por posición (-8%)
-
-def load_traders_config(filename: str = CONFIG_FILE) -> List[Dict[str, Any]]:
-    if os.path.exists(filename):
-        try:
-            with open(filename, "r") as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"⚠️ Error al leer {filename}: {e}")
-    return []
-
-def save_traders_config(traders: List[Dict[str, Any]], filename: str = CONFIG_FILE):
-    with open(filename, "w") as f:
-        json.dump(traders, f, indent=2)
+GLOBAL_CIRCUIT_BREAKER_PCT = 15.0
+MAX_POSITION_STOP_LOSS_PCT = 8.0
 
 class PaperPortfolio:
-    def __init__(self, filename: str = PORTFOLIO_FILE, initial_balance: float = DEFAULT_INITIAL_BALANCE):
-        self.filename = filename
-        self.initial_balance = initial_balance
-        self.data = self._load()
+    def __init__(self, user_id: str = "default_user"):
+        self.user_id = user_id
 
-    def _load(self) -> Dict[str, Any]:
-        if os.path.exists(self.filename):
-            try:
-                with open(self.filename, "r") as f:
-                    return json.load(f)
-            except Exception as e:
-                print(f"⚠️ Error cargando cartera: {e}. Creando una nueva.")
-        
-        default_data = {
-            "initial_balance": self.initial_balance,
-            "peak_balance": self.initial_balance,
-            "cash_balance": self.initial_balance,
-            "realized_pnl": 0.0,
-            "positions": {},
-            "trade_history": [],
-            "trader_stats": {},
-            "circuit_breaker_triggered": False,
-            "stats": {
-                "total_trades": 0,
-                "winning_trades": 0,
-                "losing_trades": 0
-            }
-        }
-        self._save(default_data)
-        return default_data
-
-    def _save(self, data: Dict[str, Any] = None):
-        if data is None:
-            data = self.data
-        with open(self.filename, "w") as f:
-            json.dump(data, f, indent=2)
+    def get_state(self):
+        """Obtiene el estado actual del usuario desde la DB"""
+        user = database.get_user(self.user_id)
+        if not user:
+            # Crear usuario si no existe
+            with database.get_connection() as conn:
+                conn.execute("INSERT INTO users (user_id) VALUES (?)", (self.user_id,))
+                conn.commit()
+            return database.get_user(self.user_id)
+        return user
 
     def check_circuit_breaker(self) -> bool:
-        """Verifica si se ha alcanzado la caída máxima permitida en la cartera"""
-        balance = self.data["cash_balance"]
-        peak = self.data.get("peak_balance", self.initial_balance)
+        user = self.get_state()
+        balance = user['cash_balance']
+        peak = user['peak_balance']
+
         if balance > peak:
-            self.data["peak_balance"] = balance
+            with database.get_connection() as conn:
+                conn.execute("UPDATE users SET peak_balance = ? WHERE user_id = ?", (balance, self.user_id))
+                conn.commit()
             peak = balance
-            self._save()
 
         drawdown_pct = ((peak - balance) / peak * 100) if peak > 0 else 0
         if drawdown_pct >= GLOBAL_CIRCUIT_BREAKER_PCT:
-            if not self.data.get("circuit_breaker_triggered", False):
-                self.data["circuit_breaker_triggered"] = True
-                self._save()
-                print(f"\n🚨 [CIRCUIT BREAKER ACTIVADO] Pérdida de cartera: -{drawdown_pct:.2f}%. Pausando nuevas operaciones.")
+            if not user['circuit_breaker_triggered']:
+                with database.get_connection() as conn:
+                    conn.execute("UPDATE users SET circuit_breaker_triggered = 1 WHERE user_id = ?", (self.user_id,))
+                    conn.commit()
+                logger.warning(f"🚨 [CIRCUIT BREAKER ACTIVADO] Pérdida: -{drawdown_pct:.2f}%")
                 notify_circuit_breaker(f"Pérdida acumulada superó el {GLOBAL_CIRCUIT_BREAKER_PCT}%", drawdown_pct)
             return True
         return False
 
-    def execute_fill(
-        self,
-        trader_cfg: Dict[str, Any],
-        fill_event: Dict[str, Any],
-        leader_balance: float
-    ):
+    def execute_fill(self, trader_cfg: Dict[str, Any], fill_event: Dict[str, Any], leader_balance: float):
         if self.check_circuit_breaker():
-            print("🛑 Orden rechazada: Circuit Breaker activo.")
+            logger.info("🛑 Orden rechazada: Circuit Breaker activo.")
             return
 
         trader_name = trader_cfg.get("name", "Desconocido")
@@ -114,159 +76,112 @@ class PaperPortfolio:
         coin = fill_event.get("coin", "")
         px = float(fill_event.get("px", 0))
         leader_sz = float(fill_event.get("sz", 0))
-        side = fill_event.get("side") # "B" (Buy) o "A" (Sell)
+        side = fill_event.get("side")
         dir_trade = fill_event.get("dir", "")
         now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        print("\n" + "🔔" * 32)
-        print(f"⚡ [NUEVA ORDEN DETECTADA] {now_str}")
-        print(f"   👤 Trader: {trader_name} ({alloc_pct}% cartera asignada)")
-        print(f"   🪙 Activo: {coin} | Acción: {dir_trade} ({'COMPRA' if side == 'B' else 'VENTA'})")
-        print(f"   💲 Precio: ${px:,.2f} | Cantidad líder: {leader_sz}")
-        print("🔔" * 32)
-
-        total_balance = self.data["cash_balance"]
-        allocated_capital = total_balance * (alloc_pct / 100.0)
+        user = self.get_state()
+        allocated_capital = user['cash_balance'] * (alloc_pct / 100.0)
 
         if leader_balance <= 0:
             leader_balance = 50_000.0
 
-        # Sizing proporcional
         ratio = (allocated_capital / leader_balance) * risk_multiplier
         my_sz = leader_sz * ratio
 
-        # Regla de riesgo: Máximo 30% del capital asignado
         trade_usd = my_sz * px
         max_allowed_usd = allocated_capital * 0.30 * max_leverage
         if trade_usd > max_allowed_usd and px > 0:
             my_sz = max_allowed_usd / px
             trade_usd = max_allowed_usd
-            print(f"⚠️ Sizing ajustado por control de riesgo a {my_sz:.4f} {coin} (${trade_usd:,.2f} USD)")
 
         pos_key = f"{coin}_{trader_addr[:6]}"
-        current_pos = self.data["positions"].get(pos_key)
+        positions = database.get_positions(self.user_id)
+        current_pos = next((p for p in positions if p['pos_key'] == pos_key), None)
 
-        if trader_name not in self.data.setdefault("trader_stats", {}):
-            self.data["trader_stats"][trader_name] = {"pnl": 0.0, "trades": 0, "wins": 0, "losses": 0}
-
-        # 1. Apertura / Aumento
         if "Open" in dir_trade or current_pos is None:
             new_side = "LONG" if side == "B" else "SHORT"
             if current_pos is None:
-                self.data["positions"][pos_key] = {
-                    "trader_name": trader_name,
-                    "trader_addr": trader_addr,
-                    "coin": coin,
-                    "size": my_sz,
-                    "entry_px": px,
-                    "side": new_side,
-                    "leverage": min(max_leverage, 10),
-                    "open_time": now_str
-                }
+                database.upsert_position(self.user_id, pos_key, {
+                    "trader_name": trader_name, "trader_addr": trader_addr, "coin": coin,
+                    "size": my_sz, "entry_px": px, "side": new_side, "leverage": min(max_leverage, 10), "open_time": now_str
+                })
             else:
-                total_sz = current_pos["size"] + my_sz
-                avg_px = ((current_pos["size"] * current_pos["entry_px"]) + (my_sz * px)) / total_sz
-                current_pos["size"] = total_sz
-                current_pos["entry_px"] = avg_px
+                total_sz = current_pos['size'] + my_sz
+                avg_px = ((current_pos['size'] * current_pos['entry_px']) + (my_sz * px)) / total_sz
+                database.upsert_position(self.user_id, pos_key, {
+                    "trader_name": trader_name, "trader_addr": trader_addr, "coin": coin,
+                    "size": total_sz, "entry_px": avg_px, "side": current_pos['side'],
+                    "leverage": current_pos['leverage'], "open_time": current_pos['open_time']
+                })
 
-            print(f"✅ [SIMULACIÓN: POSICIÓN ABIERTA] {coin} {new_side} (Copiando a {trader_name})")
-            print(f"   Tamaño virtual: {my_sz:.4f} {coin} (${trade_usd:,.2f} USD) | Entrada: ${px:,.2f}")
-            
-            # Notificación Telegram
-            notify_trade_opened(
-                trader_name=trader_name,
-                coin=coin,
-                side=new_side,
-                size_usd=trade_usd,
-                entry_px=px,
-                leverage=min(max_leverage, 10)
-            )
+            notify_trade_opened(trader_name, coin, new_side, trade_usd, px, min(max_leverage, 10))
 
-        # 2. Cierre
         elif "Close" in dir_trade and current_pos is not None:
-            pos_sz = min(current_pos["size"], my_sz) if my_sz > 0 else current_pos["size"]
-            entry_px = current_pos["entry_px"]
+            pos_sz = min(current_pos['size'], my_sz) if my_sz > 0 else current_pos['size']
+            entry_px = current_pos['entry_px']
 
-            if current_pos["side"] == "LONG":
-                pnl = (px - entry_px) * pos_sz
-            else:
-                pnl = (entry_px - px) * pos_sz
-
+            pnl = (px - entry_px) * pos_sz if current_pos['side'] == "LONG" else (entry_px - px) * pos_sz
             fee = (pos_sz * px) * 0.00035
             net_pnl = pnl - fee
 
-            self.data["cash_balance"] += net_pnl
-            self.data["realized_pnl"] += net_pnl
-            self.data["stats"]["total_trades"] += 1
-            
-            t_stats = self.data["trader_stats"][trader_name]
-            t_stats["trades"] += 1
-            t_stats["pnl"] += net_pnl
+            database.update_user_balance(self.user_id, net_pnl)
 
-            if net_pnl > 0:
-                self.data["stats"]["winning_trades"] += 1
-                t_stats["wins"] += 1
+            # Update stats
+            with database.get_connection() as conn:
+                conn.execute('''
+                    INSERT INTO user_stats (user_id, total_trades, winning_trades, losing_trades)
+                    VALUES (?, 1, ?, ?)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        total_trades = total_trades + 1,
+                        winning_trades = winning_trades + ?,
+                        losing_trades = losing_trades + ?
+                ''', (self.user_id, 1 if net_pnl > 0 else 0, 0 if net_pnl > 0 else 1,
+                      1 if net_pnl > 0 else 0, 0 if net_pnl > 0 else 1))
+                conn.commit()
+
+            notify_trade_closed(trader_name, coin, current_pos['side'], net_pnl, user['cash_balance'] + net_pnl)
+
+            if pos_sz >= current_pos['size']:
+                database.delete_position(self.user_id, pos_key)
             else:
-                self.data["stats"]["losing_trades"] += 1
-                t_stats["losses"] += 1
+                # Update size by reading and upserting
+                new_size = current_pos['size'] - pos_sz
+                database.upsert_position(self.user_id, pos_key, {
+                    "trader_name": trader_name, "trader_addr": trader_addr, "coin": coin,
+                    "size": new_size, "entry_px": entry_px, "side": current_pos['side'],
+                    "leverage": current_pos['leverage'], "open_time": current_pos['open_time']
+                })
 
-            print(f"🏁 [SIMULACIÓN: POSICIÓN CERRADA] {coin} {current_pos['side']} ({trader_name})")
-            print(f"   Entrada: ${entry_px:,.2f} -> Salida: ${px:,.2f}")
-            print(f"   PnL Neto: ${net_pnl:+,.2f} USD (Comisión: ${fee:.2f})")
-
-            # Notificación Telegram
-            notify_trade_closed(
-                trader_name=trader_name,
-                coin=coin,
-                side=current_pos["side"],
-                pnl=net_pnl,
-                balance_after=self.data["cash_balance"]
-            )
-
-            if pos_sz >= current_pos["size"]:
-                del self.data["positions"][pos_key]
-            else:
-                current_pos["size"] -= pos_sz
-
-        self.data["trade_history"].append({
-            "time": now_str,
-            "trader": trader_name,
-            "coin": coin,
-            "dir": dir_trade,
-            "px": px,
-            "sz": my_sz,
-            "balance_after": self.data["cash_balance"]
+        database.add_trade_history(self.user_id, {
+            "time": now_str, "trader": trader_name, "coin": coin, "dir": dir_trade,
+            "px": px, "sz": my_sz, "balance_after": self.get_state()['cash_balance']
         })
-        self._save()
         self.print_summary()
 
     def print_summary(self):
+        user = self.get_state()
         print("\n" + "📊" * 32)
-        print("💼 ESTADO DE TU CARTERA VIRTUAL (PAPER TRADING):")
-        print(f"   💵 Saldo Actual: ${self.data['cash_balance']:,.2f} USD (Inicial: ${self.data['initial_balance']:,.2f})")
-        print(f"   📈 PnL Total Realizado: ${self.data['realized_pnl']:+,.2f} USD")
-        print(f"   🎯 Total Trades: {self.data['stats']['total_trades']} (✅ {self.data['stats']['winning_trades']} Ganados | ❌ {self.data['stats']['losing_trades']} Perdidos)")
-        
-        t_stats = self.data.get("trader_stats", {})
-        if t_stats:
-            print("\n   👥 Rendimiento por Trader Copiado:")
-            for name, st in t_stats.items():
-                win_rate = (st['wins'] / st['trades'] * 100) if st['trades'] > 0 else 0
-                print(f"      • {name:<18} | PnL: ${st['pnl']:+,.2f} | Trades: {st['trades']} | WinRate: {win_rate:.1f}%")
+        print(f"💼 CARTERA VIRTUAL: {self.user_id}")
+        print(f"   💵 Saldo Actual: ${user['cash_balance']:,.2f} USD")
+        print(f"   📈 PnL Realizado: ${user['realized_pnl']:+,.2f} USD")
 
-        positions = self.data.get("positions", {})
+        with database.get_connection() as conn:
+            stats = conn.execute("SELECT * FROM user_stats WHERE user_id = ?", (self.user_id,)).fetchone()
+            if stats:
+                wr = (stats['winning_trades'] / stats['total_trades'] * 100) if stats['total_trades'] > 0 else 0
+                print(f"   🎯 Trades: {stats['total_trades']} (✅ {stats['winning_trades']} | ❌ {stats['losing_trades']}) | WR: {wr:.1f}%")
+
+        positions = database.get_positions(self.user_id)
         if positions:
             print("\n   🟢 Posiciones Abiertas:")
-            for k, pos in positions.items():
-                print(f"      • [{pos.get('trader_name', 'Líder')}] {pos['coin']} {pos['side']}: {pos['size']:.4f} @ ${pos['entry_px']:,.2f}")
-        else:
-            print("\n   ⚪ Sin posiciones abiertas en este momento.")
+            for p in positions:
+                print(f"      • [{p['trader_name']}] {p['coin']} {p['side']}: {p['size']:.4f} @ ${p['entry_px']:,.2f}")
         print("📊" * 32 + "\n")
-
 
 class MultiTraderCopyBot:
     def __init__(self, traders_config: List[Dict[str, Any]] = None):
-        self.traders = traders_config or load_traders_config()
+        self.traders = traders_config or [] # In real app, this would come from DB
         self.portfolio = PaperPortfolio()
         self.info = Info(constants.MAINNET_API_URL, skip_ws=False)
         self.last_fill_times = {}
@@ -274,23 +189,17 @@ class MultiTraderCopyBot:
         self._init_leaders()
 
     def _init_leaders(self):
-        print("\n🔍 Inicializando datos de los traders configurados...")
         for t in self.traders:
             addr = t["address"].lower()
             name = t.get("name", addr[:8])
             try:
                 state = self.info.user_state(addr)
-                account_val = float(state.get("marginSummary", {}).get("accountValue", 0))
-                self.leader_balances[addr] = account_val if account_val > 0 else 50_000.0
-                
+                val = float(state.get("marginSummary", {}).get("accountValue", 0))
+                self.leader_balances[addr] = val if val > 0 else 50_000.0
                 fills = self.info.user_fills(addr)
-                if fills:
-                    self.last_fill_times[addr] = int(fills[0].get("time", 0))
-                else:
-                    self.last_fill_times[addr] = 0
-                print(f"   ✅ {name:<20} | Saldo: ${self.leader_balances[addr]:,.2f} | Asignación: {t.get('allocation_pct', 0)}%")
+                self.last_fill_times[addr] = int(fills[0].get("time", 0)) if fills else 0
             except Exception as e:
-                print(f"   ⚠️ Error cargando info de {name}: {e}")
+                logger.error(f"Error cargando info de {name}: {e}")
                 self.leader_balances[addr] = 50_000.0
                 self.last_fill_times[addr] = 0
 
@@ -304,48 +213,25 @@ class MultiTraderCopyBot:
                     fill_time = int(fill.get("time", 0))
                     if fill_time > self.last_fill_times.get(addr, 0):
                         self.last_fill_times[addr] = fill_time
-                        self.portfolio.execute_fill(
-                            trader_cfg=trader_cfg,
-                            fill_event=fill,
-                            leader_balance=self.leader_balances.get(addr, 50_000.0)
-                        )
+                        self.portfolio.execute_fill(trader_cfg, fill, self.leader_balances.get(addr, 50_000.0))
             except Exception as e:
-                print(f"❌ Error procesando orden de {trader_cfg.get('name')}: {e}")
+                logger.error(f"Error procesando orden de {trader_cfg.get('name')}: {e}")
         return on_fill
 
     def start(self):
         if not self.traders:
-            print("❌ No hay traders configurados para copiar.")
+            logger.error("❌ No hay traders configurados.")
             return
 
-        total_alloc = sum(t.get("allocation_pct", 0) for t in self.traders)
-        tg_status = "✅ Activadas" if is_telegram_configured() else "⚪ No configuradas (Opcional)"
-        
-        print("\n" + "🚀" * 35)
-        print("   INICIANDO BOT DE COPY TRADING MULTI-TRADER")
-        print(f"   👥 Total Traders Seguidos: {len(self.traders)} (Asignación: {total_alloc}%)")
-        print(f"   🛡️ Protección Circuit Breaker: -{GLOBAL_CIRCUIT_BREAKER_PCT}%")
-        print(f"   📲 Alertas Telegram: {tg_status}")
-        print("🚀" * 35)
-
         self.portfolio.print_summary()
-
-        print("📡 Conectando WebSockets en tiempo real...")
         for t in self.traders:
             addr = t["address"].lower()
             callback = self._make_callback(t)
-            sub_id = self.info.subscribe({"type": "userFills", "user": addr}, callback)
-            print(f"   🎧 Escuchando a [{t.get('name')}] (Sub ID: {sub_id})")
+            self.info.subscribe({"type": "userFills", "user": addr}, callback)
 
-        print("\n👀 Bot activo operando 24/7 en tiempo real... (Presiona Ctrl+C para detener)\n")
+        logger.info("👀 Bot activo operando en tiempo real... (Ctrl+C para detener)")
         try:
             while True:
                 time.sleep(1)
         except KeyboardInterrupt:
-            print("\n🛑 Deteniendo bot y desconectando WebSockets...")
             self.info.disconnect_websocket()
-            print("👋 Bot detenido de forma segura.")
-
-if __name__ == "__main__":
-    bot = MultiTraderCopyBot()
-    bot.start()
