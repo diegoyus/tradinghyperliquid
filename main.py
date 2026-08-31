@@ -179,3 +179,5 @@ def menu_principal():
 
 if __name__ == "__main__":
     menu_principal()
+
+# Deployment Trigger: Mon Aug 31 20:58:03 CEST 2026
