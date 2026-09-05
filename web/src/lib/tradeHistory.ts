@@ -1,4 +1,4 @@
-import { UserProfile, UnifiedTrade } from "./types";
+import { UserProfile, UnifiedTrade, TraderConfig } from "./types";
 import { getResetTimestamp } from "./storage";
 
 const HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info";
@@ -145,29 +145,362 @@ export async function syncServerTradeActions(): Promise<{ approved: string[]; re
 
 export async function fetchFullTradeHistory(profile: UserProfile): Promise<UnifiedTrade[]> {
   if (!profile) return [];
-  const targetTraders = (profile.trading_mode === "REAL" && profile.real_traders && profile.real_traders.length > 0)
+
+  const targetTraders: TraderConfig[] = (profile.trading_mode === "REAL" && profile.real_traders && profile.real_traders.length > 0)
     ? profile.real_traders
     : (profile.traders || []);
 
-  if (targetTraders.length === 0) {
-    return [];
-  }
-
   const resetTime = getResetTimestamp();
   const requiresApproval = profile.global_risk?.execution_mode === "TELEGRAM_APPROVAL";
-  
+
   // Sincronizar acciones de aprobación desde el servidor
   await syncServerTradeActions().catch(() => {});
   const approvedSet = new Set(getApprovedTradeIds());
   const rejectedSet = new Set(getRejectedTradeIds());
 
-  const baseCapital = profile.trading_mode === "REAL"
-    ? (profile.initial_balance || 1000)
-    : (profile.cash_balance || 10000);
+  // =========================================================================
+  // CASO 1: MODO REAL (Trades 100% reales ejecutados en la billetera on-chain)
+  // =========================================================================
+  if (profile.trading_mode === "REAL" && profile.wallet_address) {
+    try {
+      const userAddr = profile.wallet_address;
 
+      // 1. Consultar en paralelo: Fills del usuario, estado de cuenta del usuario, y fills de los líderes
+      const [userFillsRes, userStateRes, ...leaderFillsResponses] = await Promise.all([
+        fetch(HYPERLIQUID_INFO_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "userFills", user: userAddr }),
+        }).catch(() => null),
+        fetch(HYPERLIQUID_INFO_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "clearinghouseState", user: userAddr }),
+        }).catch(() => null),
+        ...targetTraders.map((t) =>
+          fetch(HYPERLIQUID_INFO_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "userFills", user: t.address }),
+          }).catch(() => null)
+        ),
+      ]);
+
+      // 2. Procesar auditorías de líderes y almacenar sus fills para correlación
+      const leaderFillsMap: Record<string, any[]> = {};
+      for (let i = 0; i < targetTraders.length; i++) {
+        const t = targetTraders[i];
+        const res = leaderFillsResponses[i];
+        if (res && res.ok) {
+          const fills = await res.json().catch(() => []);
+          if (Array.isArray(fills)) {
+            leaderFillsMap[t.address.toLowerCase()] = fills;
+
+            let leaderWins = 0;
+            let leaderLosses = 0;
+            let leaderGrossProfit = 0;
+            let leaderGrossLoss = 0;
+            let leaderNetPnl = 0;
+
+            fills.forEach((f: any) => {
+              const cp = parseFloat(f.closedPnl || "0");
+              leaderNetPnl += cp;
+              if (cp > 0) {
+                leaderWins++;
+                leaderGrossProfit += cp;
+              } else if (cp < 0) {
+                leaderLosses++;
+                leaderGrossLoss += Math.abs(cp);
+              }
+            });
+
+            const leaderWinRate = (leaderWins + leaderLosses) > 0
+              ? ((leaderWins / (leaderWins + leaderLosses)) * 100).toFixed(1)
+              : "0.0";
+            const leaderProfitFactor = leaderGrossLoss > 0
+              ? (leaderGrossProfit / leaderGrossLoss).toFixed(2)
+              : leaderGrossProfit > 0 ? "∞" : "0.00";
+
+            leaderAuditsCache[t.address.toLowerCase()] = {
+              totalFills: fills.length,
+              wins: leaderWins,
+              losses: leaderLosses,
+              winRate: leaderWinRate,
+              netPnl: leaderNetPnl,
+              profitFactor: leaderProfitFactor,
+              grossProfit: leaderGrossProfit,
+              grossLoss: leaderGrossLoss,
+            };
+          }
+        }
+      }
+
+      // 3. Procesar Fills Reales del Usuario
+      const userTrades: UnifiedTrade[] = [];
+      let rawUserFills: any[] = [];
+      if (userFillsRes && userFillsRes.ok) {
+        const json = await userFillsRes.json().catch(() => []);
+        if (Array.isArray(json)) rawUserFills = json;
+      }
+
+      // Ordenar cronológicamente para reconstruir aperturas / cierres
+      const sortedUserFills = [...rawUserFills].sort((a, b) => (a.time || 0) - (b.time || 0));
+
+      // Mapa para registrar aperturas por moneda
+      const openFillsByCoin: Record<string, any[]> = {};
+      sortedUserFills.forEach((f) => {
+        const coin = (f.coin || "").toUpperCase();
+        if (!openFillsByCoin[coin]) openFillsByCoin[coin] = [];
+        openFillsByCoin[coin].push(f);
+      });
+
+      // Procesar cada fill cerrado
+      for (const uf of sortedUserFills) {
+        const closeTime = uf.time || 0;
+        if (resetTime > 0 && closeTime < resetTime) continue;
+
+        const cp = parseFloat(uf.closedPnl || "0");
+        const dir = uf.dir || (uf.side === "B" ? "Buy" : "Sell");
+        const dirLower = dir.toLowerCase();
+        const isClosed = Math.abs(cp) > 0.00001 || dirLower.includes("close");
+
+        // Si no es un fill de cierre ni tiene PnL cerrado, era una entrada de posición
+        if (!isClosed) continue;
+
+        const coin = (uf.coin || "").toUpperCase();
+        const px = parseFloat(uf.px || "0");
+        const sz = parseFloat(uf.sz || "0");
+        const fee = parseFloat(uf.fee || "0");
+
+        // Correlacionar con el líder adecuado:
+        // 1. Coincidencia por moneda y ventana temporal (dentro de 120s)
+        let matchedTrader: TraderConfig | null = null;
+        let minTimeDiff = Infinity;
+
+        for (const t of targetTraders) {
+          const lFills = leaderFillsMap[t.address.toLowerCase()] || [];
+          for (const lf of lFills) {
+            if ((lf.coin || "").toUpperCase() === coin) {
+              const diff = Math.abs((lf.time || 0) - closeTime);
+              if (diff < 120000 && diff < minTimeDiff) {
+                minTimeDiff = diff;
+                matchedTrader = t;
+              }
+            }
+          }
+        }
+
+        // 2. Si no hubo coincidencia temporal cercana, asociar al líder que opera esa moneda
+        if (!matchedTrader) {
+          for (const t of targetTraders) {
+            const allowed = (t.allowed_coins || []).map((c) => c.toUpperCase());
+            const blocked = (t.blocked_coins || []).map((c) => c.toUpperCase());
+            if (t.coin_filter_mode === "ALLOWLIST" && allowed.includes(coin)) {
+              matchedTrader = t;
+              break;
+            }
+            if (t.coin_filter_mode !== "BLOCKLIST" || !blocked.includes(coin)) {
+              if (!matchedTrader) matchedTrader = t;
+            }
+          }
+        }
+
+        // 3. Fallback a primer trader disponible si no se determinó
+        if (!matchedTrader && targetTraders.length > 0) {
+          matchedTrader = targetTraders[0];
+        }
+
+        // Buscar el fill de apertura correspondiente en la misma moneda previo a closeTime
+        const coinFills = openFillsByCoin[coin] || [];
+        const prevFills = coinFills.filter((f) => (f.time || 0) < closeTime);
+        const openFill = prevFills.length > 0 ? prevFills[prevFills.length - 1] : null;
+        const openTime = openFill ? (openFill.time || 0) : Math.max(0, closeTime - 1800000);
+        const entryPx = openFill ? parseFloat(openFill.px || "0") : px;
+        const durationMs = Math.max(60000, closeTime - openTime);
+
+        // Identificar dirección:
+        // En HL: "Close Long" proviene de vender (Side A), pero la operación original era LONG.
+        // "Close Short" proviene de comprar (Side B), pero la operación original era SHORT.
+        const isLong = dirLower.includes("long") ? true : dirLower.includes("short") ? false : uf.side === "B";
+        const side: "LONG" | "SHORT" = isLong ? "LONG" : "SHORT";
+
+        const lev = matchedTrader?.max_leverage || 10;
+        const usdValue = sz * px;
+        const marginUSD = lev > 0 ? usdValue / lev : usdValue;
+        const pnlPct = marginUSD > 0 ? (cp / marginUSD) * 100 : 0;
+
+        const tradeId = `real_${uf.hash || uf.tid || `${coin}_${closeTime}`}`;
+
+        userTrades.push({
+          id: tradeId,
+          timestamp: closeTime,
+          timeStr: formatShortDateTime(closeTime),
+          openTimestamp: openTime,
+          closeTimestamp: closeTime,
+          openTimeStr: formatDateTime(openTime),
+          closeTimeStr: formatDateTime(closeTime),
+          durationStr: formatDuration(durationMs),
+          traderName: matchedTrader ? (matchedTrader.alias ? `${matchedTrader.alias} (${matchedTrader.name})` : matchedTrader.name) : "Operación de Billetera",
+          traderAddr: matchedTrader ? matchedTrader.address : userAddr,
+          coin: uf.coin,
+          dir,
+          side,
+          status: "CLOSED",
+          entryPx,
+          exitPx: px,
+          size: sz,
+          usdValue,
+          leverage: lev,
+          pnl: cp,
+          pnlPct,
+          fee,
+        });
+      }
+
+      // 4. Posiciones actualmente abiertas en la cuenta real del usuario
+      if (userStateRes && userStateRes.ok) {
+        const userState = await userStateRes.json().catch(() => ({}));
+        const assetPositions = userState.assetPositions || [];
+
+        for (let i = 0; i < assetPositions.length; i++) {
+          const ap = assetPositions[i];
+          const pos = ap.position;
+          if (!pos) continue;
+
+          const szi = parseFloat(pos.szi || "0");
+          if (Math.abs(szi) === 0) continue;
+
+          const coin = (pos.coin || "").toUpperCase();
+          const entryPx = parseFloat(pos.entryPx || "0");
+          const posLev = pos.leverage?.value || 10;
+          const upnl = parseFloat(pos.unrealizedPnl || "0");
+          const side: "LONG" | "SHORT" = szi > 0 ? "LONG" : "SHORT";
+          const sz = Math.abs(szi);
+          const usdValue = sz * entryPx;
+          const marginUSD = posLev > 0 ? usdValue / posLev : usdValue;
+          const pnlPct = marginUSD > 0 ? (upnl / marginUSD) * 100 : 0;
+
+          // Correlacionar posición abierta con líder
+          let matchedTrader: TraderConfig | null = null;
+          for (const t of targetTraders) {
+            const allowed = (t.allowed_coins || []).map((c) => c.toUpperCase());
+            const blocked = (t.blocked_coins || []).map((c) => c.toUpperCase());
+            if (t.coin_filter_mode === "ALLOWLIST" && allowed.includes(coin)) {
+              matchedTrader = t;
+              break;
+            }
+            if (t.coin_filter_mode !== "BLOCKLIST" || !blocked.includes(coin)) {
+              if (!matchedTrader) matchedTrader = t;
+            }
+          }
+          if (!matchedTrader && targetTraders.length > 0) matchedTrader = targetTraders[0];
+
+          // Buscar cuándo se abrió en los fills del usuario
+          const coinFills = openFillsByCoin[coin] || [];
+          const openTime = coinFills.length > 0
+            ? coinFills[coinFills.length - 1].time || Date.now() - 3600000
+            : Date.now() - 3600000;
+
+          const now = Date.now();
+          const durationMs = Math.max(60000, now - openTime);
+          const tradeId = `real_open_${coin}_${i}`;
+
+          let tradeStatus: "OPEN" | "PENDING_APPROVAL" = "OPEN";
+          if (requiresApproval && !approvedSet.has(tradeId)) {
+            tradeStatus = "PENDING_APPROVAL";
+          }
+
+          userTrades.push({
+            id: tradeId,
+            timestamp: now,
+            timeStr: tradeStatus === "PENDING_APPROVAL" ? `⏳ Esperando Aprobación` : `En vivo • ${formatShortDateTime(openTime)}`,
+            openTimestamp: openTime,
+            closeTimestamp: undefined,
+            openTimeStr: formatDateTime(openTime),
+            closeTimeStr: tradeStatus === "PENDING_APPROVAL" ? "Pendiente Validación 📱" : "En mercado 🟢",
+            durationStr: `Abierta hace ${formatDuration(durationMs)}`,
+            traderName: matchedTrader ? (matchedTrader.alias ? `${matchedTrader.alias} (${matchedTrader.name})` : matchedTrader.name) : "Operación de Billetera",
+            traderAddr: matchedTrader ? matchedTrader.address : userAddr,
+            coin: pos.coin,
+            dir: side === "LONG" ? "Open Long" : "Open Short",
+            side,
+            status: tradeStatus,
+            entryPx,
+            markPx: entryPx,
+            size: sz,
+            usdValue,
+            leverage: posLev,
+            pnl: tradeStatus === "PENDING_APPROVAL" ? 0 : upnl,
+            pnlPct: tradeStatus === "PENDING_APPROVAL" ? 0 : pnlPct,
+          });
+        }
+      }
+
+      return userTrades.sort((a, b) => b.timestamp - a.timestamp);
+    } catch (err) {
+      console.error("Error cargando historial de trading real:", err);
+      return [];
+    }
+  }
+
+  // =========================================================================
+  // CASO 2: MODO DEMO
+  // =========================================================================
+  // Si el usuario tiene trade_history guardado en su perfil, usarlo directamente
+  if (profile.trade_history && profile.trade_history.length > 0) {
+    const demoTrades: UnifiedTrade[] = profile.trade_history.map((item, idx) => {
+      const ts = new Date(item.time).getTime() || Date.now() - idx * 60000;
+      const dirLower = (item.dir || "").toLowerCase();
+      const isLong = dirLower.includes("long");
+      const side: "LONG" | "SHORT" = isLong ? "LONG" : "SHORT";
+      const isClosed = item.pnl !== undefined || dirLower.includes("close");
+      const pnl = item.pnl || 0;
+      const usdValue = item.px * item.sz;
+      const lev = 10;
+      const marginUSD = usdValue / lev;
+      const pnlPct = marginUSD > 0 ? (pnl / marginUSD) * 100 : 0;
+
+      // Buscar trader en la cesta
+      const matched = targetTraders.find((t) =>
+        t.name.toLowerCase() === item.trader.toLowerCase() ||
+        (t.alias && t.alias.toLowerCase() === item.trader.toLowerCase())
+      );
+
+      return {
+        id: `demo_${ts}_${idx}`,
+        timestamp: ts,
+        timeStr: formatShortDateTime(ts),
+        openTimestamp: ts - 1800000,
+        closeTimestamp: isClosed ? ts : undefined,
+        openTimeStr: formatDateTime(ts - 1800000),
+        closeTimeStr: isClosed ? formatDateTime(ts) : "En mercado 🟢",
+        durationStr: formatDuration(1800000),
+        traderName: matched ? (matched.alias ? `${matched.alias} (${matched.name})` : matched.name) : item.trader,
+        traderAddr: matched ? matched.address : `demo_${item.trader}`,
+        coin: item.coin,
+        dir: item.dir,
+        side,
+        status: isClosed ? "CLOSED" : "OPEN",
+        entryPx: item.px,
+        exitPx: item.px,
+        size: item.sz,
+        usdValue,
+        leverage: lev,
+        pnl,
+        pnlPct,
+      };
+    });
+
+    return demoTrades.sort((a, b) => b.timestamp - a.timestamp);
+  }
+
+  // Fallback para DEMO cuando trade_history está vacío:
+  // Simular a partir de las operaciones de los líderes desde joined_at
+  if (targetTraders.length === 0) return [];
+
+  const baseCapital = profile.cash_balance || 10000;
   const profileCreatedTs = (profile as any).created_at ? new Date((profile as any).created_at).getTime() : 0;
 
-  // Ejecutar todas las peticiones a la API de Hyperliquid en PARALELO para máxima velocidad
   const traderResults = await Promise.all(
     targetTraders.map(async (t) => {
       const traderTrades: UnifiedTrade[] = [];
@@ -199,7 +532,6 @@ export async function fetchFullTradeHistory(profile: UserProfile): Promise<Unifi
 
         const fillsMapByCoin: Record<string, number[]> = {};
 
-        // 1. Procesar Fills (Operaciones Cerradas)
         if (fillsRes && fillsRes.ok) {
           const fills = await fillsRes.json().catch(() => []);
           if (Array.isArray(fills)) {
@@ -249,9 +581,6 @@ export async function fetchFullTradeHistory(profile: UserProfile): Promise<Unifi
               const closeTime = f.time || 0;
               const coin = (f.coin || "").toUpperCase();
 
-              // REGLA ESTRICTA DE RÉPLICA:
-              // Una operación cerrada con anterioridad a la fecha en que el usuario empezó a copiar al trader (effectiveJoinedAt)
-              // o antes de un reinicio de cuenta (resetTime) NUNCA fue una réplica del usuario.
               if (effectiveJoinedAt > 0 && closeTime < effectiveJoinedAt) continue;
               if (resetTime > 0 && closeTime < resetTime) continue;
 
@@ -306,7 +635,6 @@ export async function fetchFullTradeHistory(profile: UserProfile): Promise<Unifi
           }
         }
 
-        // 2. Procesar Posiciones Abiertas
         if (stateRes && stateRes.ok) {
           const state = await stateRes.json().catch(() => ({}));
           const traderAccountValue = parseFloat(state.marginSummary?.accountValue || "100000");
@@ -346,10 +674,8 @@ export async function fetchFullTradeHistory(profile: UserProfile): Promise<Unifi
 
             const tradeId = `open_${t.address.slice(0, 6)}_${coin}_${i}`;
 
-            // Si fue rechazada por el usuario, omitir
             if (rejectedSet.has(tradeId)) continue;
 
-            // Determinar si está aprobada o requiere validación
             let tradeStatus: "OPEN" | "PENDING_APPROVAL" = "OPEN";
             if (requiresApproval && !approvedSet.has(tradeId)) {
               tradeStatus = "PENDING_APPROVAL";
