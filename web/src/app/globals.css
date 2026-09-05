@@ -5,13 +5,33 @@
 :root {
   --background: #0a0e17;
   --foreground: #f3f4f6;
+  --color-primary: 16 185 129; /* Emerald 500 (Verde simulado) */
+  --color-primary-hover: 5 150 105; /* Emerald 600 */
+}
+
+[data-theme="real"],
+html[data-theme="real"],
+body[data-theme="real"] {
+  --color-primary: 37 99 235; /* Blue 600 (Azul real) */
+  --color-primary-hover: 29 78 216; /* Blue 700 */
+}
+
+html {
+  touch-action: pan-x pan-y;
+  -webkit-text-size-adjust: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  max-width: 100vw;
   overflow-x: hidden;
+  touch-action: pan-x pan-y;
+  -webkit-text-size-adjust: 100%;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
 /* Custom scrollbar */
