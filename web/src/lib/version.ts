@@ -2,9 +2,9 @@
  * Control de Versiones y Despliegues de HyperCopy
  * Actualizado automáticamente en cada versión y despliegue de producción.
  */
-export const APP_VERSION = "v2.5.0";
-export const LAST_DEPLOY_DATE = "5 de Septiembre de 2026, 12:35 CEST";
-export const DEPLOY_COMMIT = "b84f3e9";
+export const APP_VERSION = "v2.6.0";
+export const LAST_DEPLOY_DATE = "5 de Septiembre de 2026, 13:30 CEST";
+export const DEPLOY_COMMIT = "c49a1f2";
 export const DEPLOY_ENV = "Producción (Vercel Edge)";
 
 export interface VersionChange {
@@ -15,6 +15,18 @@ export interface VersionChange {
 }
 
 export const DEPLOY_HISTORY: VersionChange[] = [
+  {
+    version: "v2.6.0",
+    date: "05/09/2026, 13:30",
+    title: "Métricas Cuantitativas Avanzadas por Trader Copiado",
+    details: [
+      "Veces que has copiado cada trader con desglose de Ganadas vs Perdidas y Win Rate personal.",
+      "Beneficio neto generado en valor absoluto ($ USD) y en porcentaje (ROI %).",
+      "Frecuencia diaria de trading: trades medios por día y cadencia entre operaciones.",
+      "Análisis cuantitativo institucional: Expectativa por trade, ratio Ganancia/Pérdida (Payoff), Profit Factor, Récords (Mejor y Peor trade), rachas y margen en riesgo.",
+      "Despliegue unificado de métricas tanto en Modo Simulado como en Modo Real (Mainnet)."
+    ]
+  },
   {
     version: "v2.5.0",
     date: "05/09/2026, 12:35",

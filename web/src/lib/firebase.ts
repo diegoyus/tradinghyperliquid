@@ -1,19 +1,26 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, initializeFirestore } from "firebase/firestore";
 
-// Firebase credentials (pueden ser configuradas via variables de entorno .env.local)
+// Credenciales oficiales de Firebase Firestore (Proyecto the-creators-cookbook-77bc)
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyDemoDummyKeyForHyperliquidCopyTrading",
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "hyperliquid-copytrading.firebaseapp.com",
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "hyperliquid-copytrading",
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "hyperliquid-copytrading.appspot.com",
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "1234567890",
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:1234567890:web:abcdef123456",
+  apiKey: "AIzaSyAqlHC0rrRQIpkpa7l8CTPSu7J35nL8jkk",
+  authDomain: "the-creators-cookbook-77bc.firebaseapp.com",
+  projectId: "the-creators-cookbook-77bc",
+  storageBucket: "the-creators-cookbook-77bc.firebasestorage.app",
+  messagingSenderId: "934032523334",
+  appId: "1:934032523334:web:370c8cab124df7327eca47",
 };
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const googleProvider = new GoogleAuthProvider();
+
+let firestoreDb;
+try {
+  firestoreDb = initializeFirestore(app, {
+    ignoreUndefinedProperties: true,
+  });
+} catch {
+  firestoreDb = getFirestore(app);
+}
+
+export const db = firestoreDb;
 export default app;

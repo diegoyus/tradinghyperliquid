@@ -17,7 +17,11 @@ export async function GET(req: Request) {
 
     let list = [...tradersList];
 
-    if (filterType === "passed") {
+    if (filterType === "hall_of_fame") {
+      list = list.filter((t) => t.passedFilter);
+      list.sort((a, b) => parseFloat(b.score) - parseFloat(a.score) || (b.sortinoRatio || 0) - (a.sortinoRatio || 0) || b.profitFactor - a.profitFactor);
+      list = list.slice(0, 5);
+    } else if (filterType === "passed") {
       list = list.filter((t) => t.passedFilter);
       list.sort((a, b) => parseFloat(b.score) - parseFloat(a.score) || b.profitFactor - a.profitFactor);
     } else if (filterType === "rejected") {

@@ -158,6 +158,7 @@ export async function POST(req: Request) {
 
     // Procesar todo el historial de trades
     const coinCounts: Record<string, number> = {};
+    const closedCoinCounts: Record<string, number> = {};
     const closedTrades: { pnl: number; time: number; notional: number; fee: number }[] = [];
 
     const formattedTrades = rawFills.map((f: any, idx: number) => {
@@ -172,6 +173,7 @@ export async function POST(req: Request) {
 
       if (pnl !== 0) {
         closedTrades.push({ pnl, time: f.time, notional, fee });
+        closedCoinCounts[coinName] = (closedCoinCounts[coinName] || 0) + 1;
       }
 
       return {
@@ -434,10 +436,53 @@ export async function POST(req: Request) {
 
     score = Math.min(Math.max(score, 1.0), 9.9);
 
-    const topAssets = Object.entries(coinCounts)
+    const totalClosed = closedTrades.length;
+    const topAssets = Object.entries(closedCoinCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6)
-      .map(([coin, count]) => ({ coin, count }));
+      .map(([coin, count]) => {
+        const pctNum = totalClosed > 0 ? (count / totalClosed) * 100 : 0;
+        return {
+          coin,
+          count,
+          pct: Math.round(pctNum * 10) / 10,
+          pctFormatted: `${(Math.round(pctNum * 10) / 10).toFixed(1)}%`,
+        };
+      });
+
+    // Cálculo de Recencia de Actividad / Última Posición Abierta
+    const lastTradeTimestamp = rawFills.length > 0 
+      ? Math.max(...rawFills.map((f: any) => f.time)) 
+      : 0;
+
+    const now = Date.now();
+    const msSinceLastTrade = lastTradeTimestamp > 0 ? Math.max(0, now - lastTradeTimestamp) : 999999999;
+    const hoursSinceLastTrade = Math.floor(msSinceLastTrade / (3600 * 1000));
+    const daysSinceLastTrade = Math.floor(msSinceLastTrade / (86400 * 1000));
+
+    let activityStatus: "ACTIVE_24H" | "ACTIVE_7D" | "ACTIVE_30D" | "INACTIVE" = "INACTIVE";
+    let activityBadge = "⚪ Inactivo (> 30d)";
+    let lastActivityText = "Sin operaciones recientes";
+
+    if (lastTradeTimestamp > 0) {
+      if (hoursSinceLastTrade < 24) {
+        activityStatus = "ACTIVE_24H";
+        activityBadge = "🟢 Activo Hoy";
+        lastActivityText = hoursSinceLastTrade === 0 ? "Hace menos de 1 hora" : `Hace ${hoursSinceLastTrade}h`;
+      } else if (daysSinceLastTrade <= 7) {
+        activityStatus = "ACTIVE_7D";
+        activityBadge = "⚡ Activo (< 7d)";
+        lastActivityText = `Hace ${daysSinceLastTrade} día${daysSinceLastTrade > 1 ? "s" : ""}`;
+      } else if (daysSinceLastTrade <= 30) {
+        activityStatus = "ACTIVE_30D";
+        activityBadge = "📅 Activo (< 30d)";
+        lastActivityText = `Hace ${daysSinceLastTrade} días`;
+      } else {
+        activityStatus = "INACTIVE";
+        activityBadge = "⚪ Inactivo (> 30d)";
+        lastActivityText = `Hace ${daysSinceLastTrade} días`;
+      }
+    }
 
     return NextResponse.json({
       success: true,
@@ -468,6 +513,13 @@ export async function POST(req: Request) {
       losingTradesCount: losses.length,
       concentrationPct: concentrationPct.toFixed(1),
       maxWin: maxWin.toFixed(2),
+      lastTradeTimestamp,
+      lastTradeTimeStr: lastTradeTimestamp > 0 ? new Date(lastTradeTimestamp).toLocaleString("es-ES") : "N/A",
+      daysSinceLastTrade,
+      hoursSinceLastTrade,
+      activityStatus,
+      activityBadge,
+      lastActivityText,
       openPositions,
       topAssets,
       pnlCurve,

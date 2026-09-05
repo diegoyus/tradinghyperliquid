@@ -11,8 +11,8 @@ module.exports = {
         background: "#0a0e17",
         surface: "#111827",
         "surface-border": "#1f2937",
-        primary: "#10b981", // Hyperliquid emerald green
-        "primary-hover": "#059669",
+        primary: "rgb(var(--color-primary) / <alpha-value>)",
+        "primary-hover": "rgb(var(--color-primary-hover) / <alpha-value>)",
         danger: "#ef4444",
         warning: "#f59e0b",
       },

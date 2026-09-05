@@ -45,6 +45,7 @@ import { fetchFullTradeHistory, approveTradeId, rejectTradeId } from "@/lib/trad
 import { MetricsInfoModal } from "@/components/MetricsInfoModal";
 import { EditAliasModal } from "@/components/EditAliasModal";
 import { GuidedTour } from "@/components/GuidedTour";
+import { CopiedTraderCard } from "@/components/CopiedTraderCard";
 
 function CustomDailyTooltip({ active, payload }: any) {
   if (active && payload && payload.length) {
@@ -899,8 +900,16 @@ export default function DashboardPage() {
         totalMarginUsed += myMargin;
       });
 
-      // 4. Desglose enriquecido por cada trader en la cesta
-      for (const tr of profile.traders) {
+      // 4. Desglose enriquecido por cada trader en la cesta (soporta tanto Simulado como Real)
+      const currentBasket = profile.trading_mode === "REAL" && profile.real_traders && profile.real_traders.length > 0
+        ? profile.real_traders
+        : (profile.traders || []);
+
+      const capitalBase = profile.trading_mode === "REAL"
+        ? (realWalletData?.marginSummary?.accountValue || profile.initial_balance || 1000)
+        : (profile.cash_balance || 10000);
+
+      for (const tr of currentBasket) {
         const addr = tr.address.toLowerCase();
         const tClosed = closedTrades.filter((c) => c.traderAddr.toLowerCase() === addr);
         const tOpen = openTrades.filter((o) => o.traderAddr.toLowerCase() === addr);
@@ -908,6 +917,7 @@ export default function DashboardPage() {
         const tLosses = tClosed.filter((c) => c.pnl < 0).length;
         const tPnl = tClosed.reduce((sum, c) => sum + c.pnl, 0);
         const totalT = tWins + tLosses;
+        const totalCopiedTrades = tClosed.length + tOpen.length;
 
         const grossProfit = tClosed.filter((c) => c.pnl > 0).reduce((sum, c) => sum + c.pnl, 0);
         const grossLoss = Math.abs(tClosed.filter((c) => c.pnl < 0).reduce((sum, c) => sum + c.pnl, 0));
@@ -916,6 +926,42 @@ export default function DashboardPage() {
         const traderMarginUsed = tOpen.reduce((sum, o) => sum + (o.leverage > 0 ? o.usdValue / o.leverage : o.usdValue), 0);
         const bestTrade = tClosed.length > 0 ? Math.max(...tClosed.map((c) => c.pnl)) : 0;
         const worstTrade = tClosed.length > 0 ? Math.min(...tClosed.map((c) => c.pnl)) : 0;
+        const bestTradePct = tClosed.length > 0 ? Math.max(...tClosed.map((c) => c.pnlPct || 0)) : 0;
+        const worstTradePct = tClosed.length > 0 ? Math.min(...tClosed.map((c) => c.pnlPct || 0)) : 0;
+
+        // Expectativa matemática: Ganancia media por trade ($ y %)
+        const avgTradePnl = tClosed.length > 0 ? (tPnl / tClosed.length) : 0;
+        const avgTradeRoiPct = tClosed.length > 0 ? (tClosed.reduce((sum, c) => sum + (c.pnlPct || 0), 0) / tClosed.length) : 0;
+
+        // Ganancia media en victorias vs Pérdida media en fallos
+        const avgWin = tWins > 0 ? (grossProfit / tWins) : 0;
+        const avgLoss = tLosses > 0 ? (grossLoss / tLosses) : 0;
+        const payoffRatio = avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : avgWin > 0 ? "∞" : "0.00";
+
+        // Racha consecutiva actual
+        const sortedClosed = [...tClosed].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        let streakCount = 0;
+        let streakType: "WIN" | "LOSS" | "NONE" = "NONE";
+        if (sortedClosed.length > 0) {
+          streakType = sortedClosed[0].pnl >= 0 ? "WIN" : "LOSS";
+          for (const sc of sortedClosed) {
+            if ((streakType === "WIN" && sc.pnl >= 0) || (streakType === "LOSS" && sc.pnl < 0)) {
+              streakCount++;
+            } else {
+              break;
+            }
+          }
+        }
+
+        // Frecuencia diaria de trades
+        const allTimestamps = [...tClosed.map((c) => c.timestamp || 0), ...tOpen.map((o) => (o.openTimestamp || o.timestamp || 0))].filter((ts) => ts > 0);
+        const firstTradeTs = allTimestamps.length > 0 ? Math.min(...allTimestamps) : (tr.joined_at || Date.now());
+        const daysTracking = Math.max(1, (Date.now() - firstTradeTs) / (24 * 3600 * 1000));
+        const tradesPerDay = ((tClosed.length + tOpen.length) / daysTracking).toFixed(1);
+        const avgHoursPerTrade = (tClosed.length + tOpen.length) > 0 ? (daysTracking * 24 / (tClosed.length + tOpen.length)).toFixed(1) : "0.0";
+
+        // Volumen total gestionado
+        const totalVolumeUSD = tClosed.reduce((sum, c) => sum + (c.usdValue || 0), 0) + tOpen.reduce((sum, o) => sum + (o.usdValue || 0), 0);
 
         // Distribución de monedas operadas
         const coinCount: Record<string, number> = {};
@@ -943,26 +989,50 @@ export default function DashboardPage() {
         const weeklyPnl = weeklyClosed.reduce((sum, c) => sum + c.pnl, 0);
         const weeklyWinRate = weeklyTradesCount > 0 ? ((weeklyWins / weeklyTradesCount) * 100).toFixed(1) : "0.0";
 
+        const assignedUSD = capitalBase * (tr.allocation_pct / 100);
+        const freeAssignedMargin = Math.max(0, assignedUSD - traderMarginUsed);
+        const marginUtilizationPct = assignedUSD > 0 ? Math.min(100, (traderMarginUsed / assignedUSD) * 100) : 0;
+        const realizedRoiPct = assignedUSD > 0 ? ((tPnl / assignedUSD) * 100) : 0;
+        const totalRoiPct = assignedUSD > 0 ? (((tPnl + traderFloatingPnl) / assignedUSD) * 100) : 0;
+
         perTrader[addr] = {
           totalPnl: tPnl,
           realizedPnl: tPnl,
           floatingPnl: traderFloatingPnl,
           totalCombinedPnl: tPnl + traderFloatingPnl,
           marginUsed: traderMarginUsed,
+          freeAssignedMargin,
+          marginUtilizationPct,
+          assignedUSD,
+          realizedRoiPctStr: tPnl >= 0 ? `+${realizedRoiPct.toFixed(2)}%` : `${realizedRoiPct.toFixed(2)}%`,
+          totalRoiPctStr: (tPnl + traderFloatingPnl) >= 0 ? `+${totalRoiPct.toFixed(2)}%` : `${totalRoiPct.toFixed(2)}%`,
           wins: tWins,
           losses: tLosses,
           totalTrades: totalT,
+          totalCopiedTrades,
           winRate: totalT > 0 ? ((tWins / totalT) * 100).toFixed(1) : "0.0",
-          weeklyTradesCount,
-          weeklyWins,
-          weeklyLosses,
-          weeklyPnl,
-          weeklyWinRate,
+          consecutiveStreakCount: streakCount,
+          consecutiveStreakType: streakType,
+          tradesPerDay,
+          avgHoursPerTrade,
+          avgTradePnl,
+          avgTradeRoiPct,
+          avgWin,
+          avgLoss,
+          payoffRatio,
           grossProfit,
           grossLoss,
           profitFactor,
           bestTrade,
           worstTrade,
+          bestTradePct,
+          worstTradePct,
+          totalVolumeUSD,
+          weeklyTradesCount,
+          weeklyWins,
+          weeklyLosses,
+          weeklyPnl,
+          weeklyWinRate,
           coinBreakdown,
           openPositions: tOpen.map((o) => ({
             id: o.id,
@@ -1273,18 +1343,35 @@ export default function DashboardPage() {
   const totalFloatingEquity = totalRealizedEquity + liveGlobalFloatingPnl;
   const freeLiquidityUSD = Math.max(0, totalRealizedEquity - liveTotalMarginUsed);
 
-  // Estadísticas combinadas de los traders copiados
-  const copiedTradersStats = profile.traders.map((t) => {
+  // Estadísticas combinadas de los traders copiados (soporta Simulado y Real)
+  const currentBasket = isReal ? (profile.real_traders || []) : (profile.traders || []);
+  const basketCapitalBase = isReal
+    ? (realWalletData?.marginSummary?.accountValue || profile.initial_balance || 1000)
+    : (profile.cash_balance || 10000);
+
+  const copiedTradersStats = currentBasket.map((t) => {
     const live = liveStats[t.address.toLowerCase()] || {
       totalPnl: 0,
       realizedPnl: 0,
       floatingPnl: 0,
       totalCombinedPnl: 0,
       marginUsed: 0,
+      freeAssignedMargin: 0,
+      marginUtilizationPct: 0,
       wins: 0,
       losses: 0,
       totalTrades: 0,
+      totalCopiedTrades: 0,
       winRate: "0.0",
+      consecutiveStreakCount: 0,
+      consecutiveStreakType: "NONE",
+      tradesPerDay: "0.0",
+      avgHoursPerTrade: "0.0",
+      avgTradePnl: 0,
+      avgTradeRoiPct: 0,
+      avgWin: 0,
+      avgLoss: 0,
+      payoffRatio: "0.00",
       weeklyTradesCount: 0,
       weeklyWins: 0,
       weeklyLosses: 0,
@@ -1295,19 +1382,26 @@ export default function DashboardPage() {
       profitFactor: "0.00",
       bestTrade: 0,
       worstTrade: 0,
+      bestTradePct: 0,
+      worstTradePct: 0,
+      totalVolumeUSD: 0,
       coinBreakdown: [],
       openPositions: [],
     };
-    const assignedUSD = profile.cash_balance * (t.allocation_pct / 100);
-    const realizedRoiPct = assignedUSD > 0 ? ((live.realizedPnl / assignedUSD) * 100).toFixed(2) : "0.00";
-    const totalRoiPct = assignedUSD > 0 ? ((live.totalCombinedPnl / assignedUSD) * 100).toFixed(2) : "0.00";
+    const assignedUSD = basketCapitalBase * (t.allocation_pct / 100);
+    const realizedRoiPct = assignedUSD > 0 ? ((live.realizedPnl / assignedUSD) * 100) : 0;
+    const totalRoiPct = assignedUSD > 0 ? ((live.totalCombinedPnl / assignedUSD) * 100) : 0;
+    const marginUtilizationPct = assignedUSD > 0 ? Math.min(100, (live.marginUsed / assignedUSD) * 100) : 0;
+    const freeAssignedMargin = Math.max(0, assignedUSD - live.marginUsed);
 
     return {
       ...t,
       ...live,
       assignedUSD,
-      realizedRoiPct: live.realizedPnl >= 0 ? `+${realizedRoiPct}%` : `${realizedRoiPct}%`,
-      totalRoiPct: live.totalCombinedPnl >= 0 ? `+${totalRoiPct}%` : `${totalRoiPct}%`,
+      freeAssignedMargin,
+      marginUtilizationPct,
+      realizedRoiPctStr: live.realizedPnl >= 0 ? `+${realizedRoiPct.toFixed(2)}%` : `${realizedRoiPct.toFixed(2)}%`,
+      totalRoiPctStr: live.totalCombinedPnl >= 0 ? `+${totalRoiPct.toFixed(2)}%` : `${totalRoiPct.toFixed(2)}%`,
     };
   });
 
@@ -2306,50 +2400,14 @@ export default function DashboardPage() {
                 </Link>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {(profile.real_traders || []).map((t, idx) => (
-                  <div
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                {copiedTradersStats.map((t, idx) => (
+                  <CopiedTraderCard
                     key={idx}
-                    className="p-5 rounded-2xl bg-surface border border-surface-border space-y-3 hover:border-blue-500/40 transition-all shadow-md shadow-black/20"
-                  >
-                    <div className="flex items-start justify-between gap-2 border-b border-surface-border/60 pb-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-extrabold text-white text-base">{t.alias || t.name}</span>
-                          {t.score && (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/40">
-                              ★ {t.score}
-                            </span>
-                          )}
-                        </div>
-                        <span className="font-mono text-[11px] text-gray-400 block mt-0.5">
-                          {t.address.slice(0, 6)}...{t.address.slice(-4)}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setAliasModalTrader(t)}
-                        className="px-2 py-1 rounded-lg bg-surface hover:bg-surface-border text-gray-300 border border-surface-border text-[10px] font-semibold transition-colors"
-                      >
-                        ✏️ Alias
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2 text-xs font-mono">
-                      <div className="p-2 rounded-xl bg-background/60 border border-surface-border space-y-0.5">
-                        <span className="text-[9px] text-gray-400 uppercase font-sans">Cuota</span>
-                        <div className="font-bold text-blue-400">{t.allocation_pct}%</div>
-                      </div>
-                      <div className="p-2 rounded-xl bg-background/60 border border-surface-border space-y-0.5">
-                        <span className="text-[9px] text-gray-400 uppercase font-sans">Stop Loss</span>
-                        <div className="font-bold text-red-400">-{t.stop_loss_pct}%</div>
-                      </div>
-                      <div className="p-2 rounded-xl bg-background/60 border border-surface-border space-y-0.5">
-                        <span className="text-[9px] text-gray-400 uppercase font-sans">Max Lev</span>
-                        <div className="font-bold text-amber-300">{t.max_leverage}x</div>
-                      </div>
-                    </div>
-                  </div>
+                    trader={t}
+                    isReal={true}
+                    onEditAlias={(trader) => setAliasModalTrader(trader)}
+                  />
                 ))}
               </div>
             )}
@@ -2928,265 +2986,14 @@ export default function DashboardPage() {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                {copiedTradersStats.map((t, idx) => {
-                  const isProfitTotal = t.totalCombinedPnl >= 0;
-                  const openPositions = t.openPositions || [];
-                  const hasOpenPositions = openPositions.length > 0;
-
-                  return (
-                    <div
-                      key={idx}
-                      className="p-6 rounded-3xl bg-surface/90 border border-surface-border space-y-5 shadow-lg shadow-black/20 hover:border-primary/40 transition-all"
-                    >
-                      {/* Cabecera del Trader */}
-                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 border-b border-surface-border/60 pb-4">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            {t.alias ? (
-                              <div className="flex items-baseline gap-1.5">
-                                <span className="font-black text-amber-300 text-lg">🏷️ {t.alias}</span>
-                                <span className="text-xs text-gray-400 font-medium">({t.name})</span>
-                              </div>
-                            ) : (
-                              <span className="font-black text-white text-lg">{t.name}</span>
-                            )}
-                            {t.score && (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/40">
-                                ★ {t.score}
-                              </span>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => setAliasModalTrader(t)}
-                              className="px-2 py-0.5 rounded-lg bg-amber-400/10 hover:bg-amber-400/20 text-amber-300 border border-amber-400/30 text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                              title="Cambiar Alias Personalizado"
-                            >
-                              <span>✏️ {t.alias ? "Editar Alias" : "+ Poner Alias"}</span>
-                            </button>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2 mt-1.5 text-xs text-gray-400">
-                            <span className="font-mono text-[11px] bg-background/80 px-2 py-0.5 rounded border border-surface-border">
-                              {t.address.slice(0, 6)}...{t.address.slice(-4)}
-                            </span>
-                            <span className="px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 font-bold text-[11px]">
-                              {t.allocation_pct}% (${t.assignedUSD.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} USD)
-                            </span>
-                            <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold text-[11px] flex items-center gap-1 font-mono">
-                              <Calendar className="w-3 h-3 text-emerald-400" />
-                              <span>7D: {t.weeklyTradesCount} trades</span>
-                              <span className="text-[10px] text-gray-400 font-normal">({t.weeklyWins}G/{t.weeklyLosses}P)</span>
-                            </span>
-                            <span className="px-2 py-0.5 rounded bg-background text-gray-300 border border-surface-border font-medium text-[10px]">
-                              🛡️ SL: {t.stop_loss_pct}% • {t.max_leverage}x
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Beneficio Total Combinado */}
-                        <div className="sm:text-right bg-background/60 sm:bg-transparent p-3 sm:p-0 rounded-2xl border sm:border-0 border-surface-border/60">
-                          <span className="text-[10px] text-gray-400 block uppercase font-bold tracking-wider">
-                            Beneficio Neto Total
-                          </span>
-                          <div className="flex sm:justify-end items-baseline gap-1.5">
-                            <span className={`text-xl font-black font-mono ${isProfitTotal ? "text-emerald-400" : "text-red-400"}`}>
-                              {isProfitTotal ? "+" : ""}${t.totalCombinedPnl.toFixed(2)}
-                            </span>
-                            <span className={`text-xs font-extrabold ${isProfitTotal ? "text-emerald-400" : "text-red-400"}`}>
-                              ({t.totalRoiPct})
-                            </span>
-                          </div>
-                          <span className="text-[10px] text-gray-500 block mt-0.5">
-                            Realizado: {t.realizedPnl >= 0 ? "+" : ""}${t.realizedPnl.toFixed(2)} • Flotante: {t.floatingPnl >= 0 ? "+" : ""}${t.floatingPnl.toFixed(2)}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Cuadrícula de 7 Métricas Clave */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 font-mono text-xs">
-                        {/* Métrica 1: Operaciones Totales */}
-                        <div className="p-3 rounded-2xl bg-background/70 border border-surface-border space-y-1">
-                          <div className="flex items-center justify-between text-gray-400 text-[10px] uppercase font-sans font-bold">
-                            <span>Trades Totales</span>
-                            <History className="w-3.5 h-3.5 text-blue-400" />
-                          </div>
-                          <div className="text-base font-black text-white">{t.totalTrades}</div>
-                          <div className="text-[10px] text-gray-400 flex items-center gap-1 font-sans">
-                            <span className="text-emerald-400 font-bold">{t.wins}G</span> / <span className="text-red-400 font-bold">{t.losses}P</span>
-                          </div>
-                        </div>
-
-                        {/* Métrica 2: Trades Última Semana (7D) */}
-                        <div className="p-3 rounded-2xl bg-background/70 border border-emerald-500/30 space-y-1">
-                          <div className="flex items-center justify-between text-emerald-300 text-[10px] uppercase font-sans font-bold">
-                            <span>Última Semana (7D)</span>
-                            <Calendar className="w-3.5 h-3.5 text-emerald-400" />
-                          </div>
-                          <div className="text-base font-black text-emerald-300">{t.weeklyTradesCount} trades</div>
-                          <div className="text-[10px] text-gray-400 flex items-center gap-1 font-sans">
-                            <span className="text-emerald-400 font-bold">{t.weeklyWins}G</span> / <span className="text-red-400 font-bold">{t.weeklyLosses}P</span>
-                            <span className="text-gray-500">({t.weeklyWinRate}%)</span>
-                          </div>
-                        </div>
-
-                        {/* Métrica 3: Win Rate Global */}
-                        <div className="p-3 rounded-2xl bg-background/70 border border-surface-border space-y-1">
-                          <div className="flex items-center justify-between text-gray-400 text-[10px] uppercase font-sans font-bold">
-                            <span>Tasa Acierto Global</span>
-                            <Award className="w-3.5 h-3.5 text-amber-400" />
-                          </div>
-                          <div className={`text-base font-black ${parseFloat(t.winRate) >= 60 ? "text-emerald-400" : "text-white"}`}>
-                            {t.winRate}%
-                          </div>
-                          <div className="text-[10px] text-gray-500 font-sans">
-                            {t.totalTrades > 0 ? "Consistente" : "Sin historial"}
-                          </div>
-                        </div>
-
-                        {/* Métrica 4: Beneficio Realizado */}
-                        <div className="p-3 rounded-2xl bg-background/70 border border-surface-border space-y-1">
-                          <div className="flex items-center justify-between text-gray-400 text-[10px] uppercase font-sans font-bold">
-                            <span>PnL Realizado</span>
-                            <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
-                          </div>
-                          <div className={`text-base font-black ${t.realizedPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                            {t.realizedPnl >= 0 ? "+" : ""}${t.realizedPnl.toFixed(2)}
-                          </div>
-                          <div className="text-[10px] text-gray-500 font-sans">Consolidado en cuenta</div>
-                        </div>
-
-                        {/* Métrica 5: Flotante en Vivo */}
-                        <div className="p-3 rounded-2xl bg-background/70 border border-surface-border space-y-1">
-                          <div className="flex items-center justify-between text-gray-400 text-[10px] uppercase font-sans font-bold">
-                            <span>Flotante Abierto</span>
-                            <Activity className="w-3.5 h-3.5 text-purple-400" />
-                          </div>
-                          <div className={`text-base font-black ${t.floatingPnl >= 0 ? "text-purple-300" : "text-red-400"}`}>
-                            {t.floatingPnl >= 0 ? "+" : ""}${t.floatingPnl.toFixed(2)}
-                          </div>
-                          <div className="text-[10px] text-gray-500 font-sans">
-                            {hasOpenPositions ? `${openPositions.length} orden(es) viva(s)` : "0 posiciones vivas"}
-                          </div>
-                        </div>
-
-                        {/* Métrica 6: Margen Usado */}
-                        <div className="p-3 rounded-2xl bg-background/70 border border-surface-border space-y-1">
-                          <div className="flex items-center justify-between text-gray-400 text-[10px] uppercase font-sans font-bold">
-                            <span>Margen en Mercado</span>
-                            <Wallet className="w-3.5 h-3.5 text-primary" />
-                          </div>
-                          <div className="text-base font-black text-white font-mono">
-                            ${t.marginUsed.toFixed(2)}
-                          </div>
-                          <div className="text-[10px] text-gray-500 font-sans">
-                            {t.assignedUSD > 0 ? `${((t.marginUsed / t.assignedUSD) * 100).toFixed(1)}% de su cuota` : "0%"}
-                          </div>
-                        </div>
-
-                        {/* Métrica 7: Profit Factor & Mejor Trade */}
-                        <div className="p-3 rounded-2xl bg-background/70 border border-surface-border space-y-1 sm:col-span-2">
-                          <div className="flex items-center justify-between text-gray-400 text-[10px] uppercase font-sans font-bold">
-                            <span>Profit Factor & PnL Semana</span>
-                            <Zap className="w-3.5 h-3.5 text-yellow-400" />
-                          </div>
-                          <div className="flex items-baseline justify-between">
-                            <div className="text-base font-black text-white font-mono">
-                              {t.profitFactor}x
-                            </div>
-                            <span className={`text-xs font-bold font-mono ${t.weeklyPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                              7D PnL: {t.weeklyPnl >= 0 ? "+" : ""}${t.weeklyPnl.toFixed(2)}
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-emerald-400 font-sans font-bold">
-                            Max Trade: +${t.bestTrade.toFixed(2)}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Sección de Posiciones Abiertas de este Trader */}
-                      <div className="space-y-2 pt-2 border-t border-surface-border/50">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="font-extrabold text-gray-300 flex items-center gap-1.5">
-                            <Activity className="w-3.5 h-3.5 text-emerald-400" />
-                            Posiciones Abiertas en Vivo ({openPositions.length})
-                          </span>
-                          {hasOpenPositions && (
-                            <span className="text-[10px] text-emerald-400 font-bold animate-pulse">
-                              ● En Ejecución en Hyperliquid
-                            </span>
-                          )}
-                        </div>
-
-                        {hasOpenPositions ? (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {openPositions.map((pos: any, pIdx: number) => {
-                              const isLong = pos.side === "LONG";
-                              const isPosProfit = pos.pnl >= 0;
-
-                              return (
-                                <div
-                                  key={pIdx}
-                                  className="p-3 rounded-2xl bg-background/80 border border-emerald-500/30 space-y-2 font-mono text-xs"
-                                >
-                                  <div className="flex items-center justify-between font-sans">
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="font-black text-white">{pos.coin}</span>
-                                      <span
-                                        className={`px-1.5 py-0.5 rounded text-[9px] font-black ${
-                                          isLong
-                                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                                            : "bg-red-500/20 text-red-400 border border-red-500/30"
-                                        }`}
-                                      >
-                                        {isLong ? "↗ LONG" : "↘ SHORT"} {pos.leverage}x
-                                      </span>
-                                    </div>
-                                    <span className={`font-black font-mono ${isPosProfit ? "text-emerald-400" : "text-red-400"}`}>
-                                      {isPosProfit ? "+" : ""}${pos.pnl.toFixed(2)}
-                                    </span>
-                                  </div>
-
-                                  <div className="grid grid-cols-2 gap-2 text-[10px] text-gray-400 pt-1 border-t border-surface-border/40 font-sans">
-                                    <div>
-                                      <span>Entrada: </span>
-                                      <strong className="text-gray-200 font-mono">${pos.entryPx.toLocaleString()}</strong>
-                                    </div>
-                                    <div className="text-right">
-                                      <span>Tamaño: </span>
-                                      <strong className="text-gray-200 font-mono">${pos.usdValue.toFixed(0)} USD</strong>
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <div className="p-3 rounded-xl bg-background/40 border border-surface-border/40 text-xs text-gray-400 flex items-center justify-between">
-                            <span className="flex items-center gap-1.5">
-                              <Shield className="w-3.5 h-3.5 text-gray-500" />
-                              Sin posiciones abiertas actualmente
-                            </span>
-                            <span className="text-[10px] text-gray-500">Esperando señal de mercado</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Monedas Operadas en Operaciones Cerradas */}
-                      {t.coinBreakdown && t.coinBreakdown.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-surface-border/50 text-[10px]">
-                          <span className="text-gray-400 font-bold uppercase mr-1">Monedas:</span>
-                          {t.coinBreakdown.map((cb: any, cIdx: number) => (
-                            <span
-                              key={cIdx}
-                              className="px-2 py-0.5 rounded-lg bg-background border border-surface-border text-gray-300 font-mono font-bold"
-                            >
-                              {cb.coin} <span className="text-primary font-normal">{cb.pct}%</span>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                {copiedTradersStats.map((t, idx) => (
+                  <CopiedTraderCard
+                    key={idx}
+                    trader={t}
+                    isReal={false}
+                    onEditAlias={(trader) => setAliasModalTrader(trader)}
+                  />
+                ))}
               </div>
             </div>
           )}

@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { Search, Award, TrendingUp, Filter, ArrowUpRight, ArrowDownRight, Plus, CheckCircle2, RefreshCw, X, Compass, Sparkles, ChevronRight, Download, ChevronLeft } from "lucide-react";
+import { Search, Award, TrendingUp, Filter, ArrowUpRight, ArrowDownRight, Plus, CheckCircle2, RefreshCw, X, Compass, Sparkles, ChevronRight, Download, ChevronLeft, HelpCircle, Calendar } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { getStoredProfile, updateTradersConfig } from "@/lib/storage";
+import { MetricsInfoModal } from "@/components/MetricsInfoModal";
+import { isMemecoin, traderOperatesMemes, parseAssetPercentages } from "@/lib/memecoins";
 
 export default function AnalyticsPage() {
   const [address, setAddress] = useState("0x337afda118de433f5a8c8ad6d6ef48b76d027a06");
@@ -11,13 +13,17 @@ export default function AnalyticsPage() {
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [addedSuccess, setAddedSuccess] = useState(false);
+  const [profile, setProfile] = useState<any>(null);
 
   // Estados del Explorador Automático del Leaderboard
   const [discoveredTraders, setDiscoveredTraders] = useState<any[]>([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
-  const [discoverFilter, setDiscoverFilter] = useState<"consistent" | "monthly" | "whales" | "all" | "passed" | "rejected">("all");
+  const [discoverFilter, setDiscoverFilter] = useState<"consistent" | "monthly" | "whales" | "all" | "passed" | "rejected" | "hall_of_fame">("all");
   const [lastAudited, setLastAudited] = useState<string>("");
   const [visibleDiscoverCount, setVisibleDiscoverCount] = useState<number>(12);
+  const [excludeMemesDiscover, setExcludeMemesDiscover] = useState(false);
+  const [onlyLiveOpenDiscover, setOnlyLiveOpenDiscover] = useState(false);
+  const [hideInactiveDiscover, setHideInactiveDiscover] = useState(true); // Ocultar pausados/inactivos por defecto
 
   // Estados de Auditoría Forense y Detección de Anomalías
   const [forensicModalAddr, setForensicModalAddr] = useState<string | null>(null);
@@ -29,10 +35,17 @@ export default function AnalyticsPage() {
   const [selectedResult, setSelectedResult] = useState<"ALL" | "WINS" | "LOSSES">("ALL");
   const [selectedSide, setSelectedSide] = useState<"ALL" | "LONG" | "SHORT">("ALL");
   const [searchTerm, setSearchTerm] = useState<string>("");
+  const [timeframeFilter, setTimeframeFilter] = useState<"ALL" | "24H" | "7D" | "30D">("ALL");
+  const [onlyLatestOpenPosition, setOnlyLatestOpenPosition] = useState(false);
 
   // Paginación del Track Record
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number | "ALL">(50);
+  const [infoModalOpen, setInfoModalOpen] = useState(false);
+
+  useEffect(() => {
+    setProfile(getStoredProfile());
+  }, []);
 
   // Cargar automáticamente las mejores carteras encontradas en Hyperliquid
   const fetchDiscovered = async (filter: any = "all") => {
@@ -208,8 +221,16 @@ export default function AnalyticsPage() {
   // Filtrado reactivo de operaciones sobre TODO el track record
   const filteredTrades = useMemo(() => {
     if (!data?.allTrades) return [];
+    const now = Date.now();
     return data.allTrades.filter((t: any) => {
-      if (selectedCoin !== "ALL" && t.coin !== selectedCoin) return false;
+      // Filtro de Recencia / Última Posición / Período
+      if (timeframeFilter === "24H" && t.timestamp && now - t.timestamp > 24 * 3600 * 1000) return false;
+      if (timeframeFilter === "7D" && t.timestamp && now - t.timestamp > 7 * 86400 * 1000) return false;
+      if (timeframeFilter === "30D" && t.timestamp && now - t.timestamp > 30 * 86400 * 1000) return false;
+
+      if (selectedCoin === "NO_MEMES" && isMemecoin(t.coin)) return false;
+      if (selectedCoin === "ONLY_MEMES" && !isMemecoin(t.coin)) return false;
+      if (selectedCoin !== "ALL" && selectedCoin !== "NO_MEMES" && selectedCoin !== "ONLY_MEMES" && t.coin !== selectedCoin) return false;
       if (selectedResult === "WINS" && t.closedPnl <= 0) return false;
       if (selectedResult === "LOSSES" && t.closedPnl >= 0) return false;
       if (selectedSide === "LONG" && !t.dir.toLowerCase().includes("long")) return false;
@@ -223,7 +244,7 @@ export default function AnalyticsPage() {
       }
       return true;
     });
-  }, [data, selectedCoin, selectedResult, selectedSide, searchTerm]);
+  }, [data, selectedCoin, selectedResult, selectedSide, searchTerm, timeframeFilter]);
 
   // Paginación
   const totalPages = pageSize === "ALL" ? 1 : Math.ceil(filteredTrades.length / (pageSize as number)) || 1;
@@ -304,10 +325,30 @@ export default function AnalyticsPage() {
                 Historial completo analizado orden a orden (hasta 2.000 operaciones por cuenta).
               </p>
             </div>
+
+            <button
+              onClick={() => setInfoModalOpen(true)}
+              className="self-start sm:self-auto px-3 py-1.5 rounded-xl bg-surface hover:bg-surface-border text-xs text-amber-300 border border-amber-500/30 flex items-center gap-1.5 transition-all shadow-sm"
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+              <span>¿Qué significan estos datos?</span>
+            </button>
           </div>
+
+          <MetricsInfoModal isOpen={infoModalOpen} onClose={() => setInfoModalOpen(false)} />
 
           {/* Discovery Filter Tabs */}
           <div className="flex flex-wrap gap-1.5 p-1 bg-background rounded-xl border border-surface-border self-start sm:self-auto text-xs">
+            <button
+              onClick={() => fetchDiscovered("hall_of_fame")}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
+                discoverFilter === "hall_of_fame"
+                  ? "bg-gradient-to-r from-amber-400 to-yellow-500 text-black font-extrabold shadow-md shadow-amber-400/25"
+                  : "text-amber-300 hover:text-amber-200 border border-amber-500/20"
+              }`}
+            >
+              👑 Hall de la Fama (Top 5)
+            </button>
             <button
               onClick={() => fetchDiscovered("all")}
               className={`px-3 py-1.5 rounded-lg font-semibold transition-all ${
@@ -348,6 +389,41 @@ export default function AnalyticsPage() {
             >
               ⚠️ Ver Descartados
             </button>
+
+            {/* Nuevos Filtros Rápidos */}
+            <button
+              type="button"
+              onClick={() => setExcludeMemesDiscover(!excludeMemesDiscover)}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all border ${
+                excludeMemesDiscover
+                  ? "bg-red-500/20 text-red-300 border-red-500/50 shadow-sm shadow-red-500/10 font-bold"
+                  : "text-gray-400 border-surface-border hover:text-white"
+              }`}
+            >
+              {excludeMemesDiscover ? "🚫 Memecoins Excluidos" : "🛡️ Quitar Memes"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setOnlyLiveOpenDiscover(!onlyLiveOpenDiscover)}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all border ${
+                onlyLiveOpenDiscover
+                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm font-bold"
+                  : "text-gray-400 border-surface-border hover:text-white"
+              }`}
+            >
+              {onlyLiveOpenDiscover ? "⚡ Con Posición Abierta (Activo)" : "⚡ Con Posición Abierta"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setHideInactiveDiscover(!hideInactiveDiscover)}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all border flex items-center gap-1.5 ${
+                hideInactiveDiscover
+                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm font-bold"
+                  : "text-gray-400 border-surface-border hover:text-white"
+              }`}
+            >
+              <span>{hideInactiveDiscover ? "🟢 Ocultando Pausados / Inactivos" : "⚪ Mostrar Pausados"}</span>
+            </button>
           </div>
         </div>
 
@@ -360,11 +436,31 @@ export default function AnalyticsPage() {
         ) : (
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {discoveredTraders.slice(0, visibleDiscoverCount).map((trader, idx) => (
+              {discoveredTraders
+                .filter((trader) => {
+                  if (hideInactiveDiscover) {
+                    const isInactive = !trader.weekTradesCount || trader.weekTradesCount === 0 || 
+                      (trader.tags && trader.tags.some((tag: string) => tag.toLowerCase().includes("inactiv") || tag.toLowerCase().includes("rechaz") || tag.toLowerCase().includes("paus")));
+                    if (isInactive) return false;
+                  }
+                  if (excludeMemesDiscover && traderOperatesMemes(trader)) return false;
+                  if (onlyLiveOpenDiscover && (!trader.openPositionsCount || trader.openPositionsCount === 0)) return false;
+                  return true;
+                })
+                .slice(0, visibleDiscoverCount)
+                .map((trader, idx) => {
+                  const userTrader = profile?.traders?.find(
+                    (t: any) => t.address.toLowerCase() === trader.address.toLowerCase()
+                  );
+                  const alreadyInBasket = !!userTrader;
+
+                  return (
                 <div
                   key={idx}
                   className={`p-5 rounded-2xl transition-all flex flex-col justify-between space-y-4 ${
-                    trader.passedFilter
+                    alreadyInBasket
+                      ? "border-2 border-emerald-400 bg-gradient-to-b from-emerald-500/20 via-background to-background shadow-lg shadow-emerald-500/15 ring-1 ring-emerald-400/50"
+                      : trader.passedFilter
                       ? "border-2 border-amber-400 bg-gradient-to-b from-amber-500/15 via-background to-background shadow-lg shadow-amber-500/10 hover:border-amber-300 ring-1 ring-amber-400/30"
                       : "border border-red-500/30 bg-background/80 opacity-80 hover:opacity-100 hover:border-gray-600"
                   }`}
@@ -372,10 +468,28 @@ export default function AnalyticsPage() {
                   <div>
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <div className="flex items-center gap-1.5">
-                          {trader.passedFilter && <span className="text-amber-400 text-sm">⭐</span>}
-                          <span className={`font-bold text-xs block ${trader.passedFilter ? "text-amber-300 text-sm font-extrabold" : "text-white"}`}>
-                            {trader.name || `Trader #${idx + 1}`}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {alreadyInBasket ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                              ✅ Copiado ({userTrader?.allocation_pct}%)
+                            </span>
+                          ) : trader.passedFilter ? (
+                            <span className="text-amber-400 text-sm">⭐</span>
+                          ) : null}
+                          <span className={`font-bold text-xs block ${
+                            alreadyInBasket
+                              ? "text-emerald-300 text-sm font-black"
+                              : trader.passedFilter
+                              ? "text-amber-300 text-sm font-extrabold"
+                              : "text-white"
+                          }`}>
+                            {userTrader?.alias ? (
+                              <>
+                                🏷️ {userTrader.alias} <span className="text-xs text-gray-400 font-normal">({trader.name || `Trader #${idx + 1}`})</span>
+                              </>
+                            ) : (
+                              trader.name || `Trader #${idx + 1}`
+                            )}
                           </span>
                         </div>
                         <span className="font-mono text-[11px] text-gray-500">
@@ -383,11 +497,13 @@ export default function AnalyticsPage() {
                         </span>
                       </div>
                       <span className={`px-2.5 py-1 rounded-full text-xs font-extrabold flex items-center gap-1 shrink-0 ${
-                        trader.passedFilter
+                        alreadyInBasket
+                          ? "bg-emerald-400/20 text-emerald-300 border border-emerald-400/50"
+                          : trader.passedFilter
                           ? "bg-amber-400/20 text-amber-300 border border-amber-400/50 shadow-sm shadow-amber-400/20"
                           : "bg-red-500/10 text-red-400 border border-red-500/30"
                       }`}>
-                        {trader.passedFilter ? `★ ${trader.score}/10` : `❌ ${trader.score}/10`}
+                        {alreadyInBasket ? `★ ${trader.score}/10` : trader.passedFilter ? `★ ${trader.score}/10` : `❌ ${trader.score}/10`}
                       </span>
                     </div>
 
@@ -407,12 +523,16 @@ export default function AnalyticsPage() {
 
                     {/* Explicación Detallada de Auditoría */}
                     <div className={`p-3 rounded-xl text-xs space-y-1 mt-2.5 border ${
-                      trader.passedFilter
+                      alreadyInBasket
+                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-100/90"
+                        : trader.passedFilter
                         ? "bg-amber-500/10 border-amber-500/30 text-amber-100/90"
                         : "bg-red-500/10 border-red-500/20 text-gray-300"
                     }`}>
-                      <span className={`font-bold block text-[10px] uppercase tracking-wider ${trader.passedFilter ? "text-amber-400" : "text-red-400"}`}>
-                        {trader.passedFilter ? "💡 Por qué superó el filtro:" : "⚠️ Motivo del descarte:"}
+                      <span className={`font-bold block text-[10px] uppercase tracking-wider ${
+                        alreadyInBasket ? "text-emerald-400" : trader.passedFilter ? "text-amber-400" : "text-red-400"
+                      }`}>
+                        {alreadyInBasket ? "✓ En tu Cesta Activa:" : trader.passedFilter ? "💡 Por qué superó el filtro:" : "⚠️ Motivo del descarte:"}
                       </span>
                       <p className="leading-relaxed text-[11px] font-medium">
                         {trader.filterAuditReason || trader.strategy}
@@ -420,7 +540,7 @@ export default function AnalyticsPage() {
                     </div>
 
                     {/* Fila 1 de Métricas */}
-                    <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-surface-border/60 text-xs">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3 pt-3 border-t border-surface-border/60 text-xs">
                       <div>
                         <span className="text-[10px] text-gray-500 block">Saldo Real</span>
                         <span className="font-mono font-bold text-gray-200">
@@ -431,6 +551,14 @@ export default function AnalyticsPage() {
                         <span className="text-[10px] text-gray-500 block">Win Rate Real</span>
                         <span className={`font-mono font-bold ${trader.winRate >= 80 ? "text-emerald-400" : "text-yellow-400"}`}>
                           {trader.winRate}% ({trader.closedTradesCount || 0} trades)
+                        </span>
+                      </div>
+                      <div className={`col-span-2 sm:col-span-1 px-2 py-1 rounded-lg border ${(trader.weekTradesCount && trader.weekTradesCount > 0) ? "bg-primary/10 border-primary/20 text-primary" : "bg-surface-border/30 border-surface-border text-gray-400"}`}>
+                        <span className="text-[10px] font-bold block">
+                          {(trader.weekTradesCount && trader.weekTradesCount > 0) ? "Última Semana (7D)" : "Actividad 7D"}
+                        </span>
+                        <span className="font-mono font-bold flex items-center gap-1">
+                          <Calendar className="w-3 h-3" /> {trader.weekTradesCount ? `${trader.weekTradesCount} trades` : "0 trades (Pausa)"}
                         </span>
                       </div>
                       <div>
@@ -458,22 +586,81 @@ export default function AnalyticsPage() {
                       <div className="bg-surface/60 p-2 rounded-lg border border-surface-border/40">
                         <span className="text-[9px] text-gray-500 block uppercase">Sortino / Rachas</span>
                         <span className="font-bold text-amber-300">
-                          {trader.sortinoRatio || "12.4"} | {trader.maxConsecutiveWins || 15}W seguidas
+                          {trader.sortinoRatio || "1.20"} | {trader.maxConsecutiveWins || 0}W seguidas
                         </span>
                       </div>
                     </div>
 
-                    {/* Píldoras de Seguridad Forense */}
+                    {/* Fila 3: Calmar, Concentración & Apalancamiento Real */}
+                    <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-surface-border/30 text-[11px] font-mono">
+                      <div className="bg-surface/60 p-2 rounded-lg border border-surface-border/30">
+                        <span className="text-[9px] text-gray-500 block uppercase">Calmar / Conc. Blue</span>
+                        <span className="font-bold text-purple-300">
+                          {trader.calmarRatio ? `${trader.calmarRatio}` : "—"} | {trader.assetConcentrationBtcEthSol ? `${trader.assetConcentrationBtcEthSol}%` : "—"}
+                        </span>
+                      </div>
+                      <div className="bg-surface/60 p-2 rounded-lg border border-surface-border/30">
+                        <span className="text-[9px] text-gray-500 block uppercase">Apalancamiento Real</span>
+                        <span className="font-bold text-blue-300">
+                          Prom: {trader.avgLeverageReal ? `${trader.avgLeverageReal}x` : "—"} | Pico: {trader.peakLeverageReal ? `${trader.peakLeverageReal}x` : "—"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Píldoras de Seguridad Forense Dinámicas */}
                     <div className="flex flex-wrap gap-1 mt-2.5">
-                      <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                        🛡️ 0% Bagholding
+                      {trader.tags && trader.tags.length > 0 ? (
+                        trader.tags.map((tag: string, tIdx: number) => {
+                          const isWarning = tag.includes("⚠️") || tag.includes("🩹") || tag.includes("🃏");
+                          const isSuccess = tag.includes("👑") || tag.includes("🛡️");
+                          return (
+                            <span
+                              key={tIdx}
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border ${
+                                isWarning
+                                  ? "bg-red-500/10 text-red-400 border-red-500/20"
+                                  : isSuccess
+                                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                  : "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                              }`}
+                            >
+                              {tag}
+                            </span>
+                          );
+                        })
+                      ) : (
+                        <>
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            🛡️ 0% Bagholding
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            🎲 Anti-Martingala
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            💎 Beneficio Orgánico ({trader.luckyTradePct || 6}% máx)
+                          </span>
+                        </>
+                      )}
+                    </div>
+
+                    {/* 🪙 Monedas en Posiciones Cerradas */}
+                    <div className="space-y-1 mt-2.5 pt-2 border-t border-surface-border/40">
+                      <span className="text-[10px] text-gray-400 font-bold block uppercase tracking-wider">
+                        🪙 Monedas en Operaciones Cerradas:
                       </span>
-                      <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                        🎲 Anti-Martingala
-                      </span>
-                      <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                        💎 Beneficio Orgánico ({trader.luckyTradePct || 6}% máx)
-                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {parseAssetPercentages(trader.topAssets || trader.strategy || "CRYPTO").map((item, aIdx) => (
+                          <span
+                            key={aIdx}
+                            className={`px-2 py-0.5 rounded-lg border text-white font-mono text-[10px] font-bold flex items-center gap-1 shadow-sm ${
+                              alreadyInBasket ? "bg-background/80 border-emerald-400/30" : "bg-surface/90 border-surface-border"
+                            }`}
+                          >
+                            <span className={alreadyInBasket ? "text-emerald-300 font-extrabold" : "text-primary font-extrabold"}>{item.coin}</span>
+                            <span className="text-emerald-400 bg-emerald-500/10 px-1 py-0.2 rounded text-[9px] font-black">{item.pct}</span>
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
@@ -492,10 +679,15 @@ export default function AnalyticsPage() {
                     >
                       <span>🔬 Forense</span>
                     </button>
-                    {trader.passedFilter ? (
+                    {alreadyInBasket ? (
+                      <span className="py-2 px-3.5 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-black flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>En Cesta</span>
+                      </span>
+                    ) : trader.passedFilter ? (
                       <button
                         onClick={() => handleAddToBasket(trader)}
-                        className="py-2 px-3.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-black text-xs font-extrabold transition-all flex items-center gap-1 shadow-md shadow-amber-400/20"
+                        className="py-2 px-3.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-black text-xs font-extrabold transition-all flex items-center gap-1 shadow-md shadow-amber-400/20 cursor-pointer"
                         title="Añadir a mi cesta de réplica"
                       >
                         <Plus className="w-3.5 h-3.5" /> Copiar
@@ -503,7 +695,7 @@ export default function AnalyticsPage() {
                     ) : (
                       <button
                         onClick={() => handleAddToBasket(trader)}
-                        className="py-2 px-3 rounded-xl bg-surface hover:bg-gray-800 border border-surface-border text-gray-400 text-xs font-medium transition-all flex items-center gap-1"
+                        className="py-2 px-3 rounded-xl bg-surface hover:bg-gray-800 border border-surface-border text-gray-400 text-xs font-medium transition-all flex items-center gap-1 cursor-pointer"
                         title="Añadir a mi cesta (con advertencia)"
                       >
                         <Plus className="w-3.5 h-3.5" /> Copiar
@@ -511,7 +703,8 @@ export default function AnalyticsPage() {
                     )}
                   </div>
                 </div>
-              ))}
+              );
+            })}
             </div>
 
             {/* Expand / View All Controls */}
@@ -608,14 +801,25 @@ export default function AnalyticsPage() {
           {/* Header Summary Banner */}
           <div className="p-6 rounded-2xl bg-gradient-to-r from-surface to-background border border-surface-border flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <span className="text-xl font-bold text-white font-mono">{data.address.slice(0, 10)}...{data.address.slice(-8)}</span>
                 <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-primary/20 text-emerald-400 border border-primary/40 flex items-center gap-1">
                   <Award className="w-3.5 h-3.5" /> Puntuación: {data.score} / 10
                 </span>
+                <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                  data.activityStatus === "ACTIVE_24H"
+                    ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                    : data.activityStatus === "ACTIVE_7D"
+                    ? "bg-blue-500/20 text-blue-300 border-blue-500/40"
+                    : data.activityStatus === "ACTIVE_30D"
+                    ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/40"
+                    : "bg-gray-700/50 text-gray-400 border-gray-600"
+                }`}>
+                  {data.activityBadge || "🕒 Actividad"} • {data.lastActivityText}
+                </span>
               </div>
               <p className="text-xs text-gray-400 mt-2">
-                Track record completo con <strong>{data.totalFills} operaciones auditadas</strong> en Hyperliquid Mainnet.
+                Última orden/posición: <strong className="text-gray-200">{data.lastTradeTimeStr || "N/A"}</strong> ({data.lastActivityText}). Total: <strong>{data.totalFills} operaciones auditadas</strong> on-chain.
               </p>
             </div>
 
@@ -627,13 +831,20 @@ export default function AnalyticsPage() {
               >
                 <Download className="w-4 h-4 text-primary" /> Descargar Track Record (CSV)
               </button>
-              <button
-                onClick={() => handleAddToBasket()}
-                className="px-5 py-2.5 rounded-xl bg-primary text-black font-bold text-xs hover:bg-primary-hover shadow-lg shadow-primary/20 transition-all flex items-center gap-2"
-              >
-                {addedSuccess ? <CheckCircle2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                {addedSuccess ? "¡Añadido a tu Cesta!" : "+ Añadir a mi Cesta"}
-              </button>
+              {profile?.traders?.some((t: any) => t.address.toLowerCase() === data.address.toLowerCase()) ? (
+                <span className="px-5 py-2.5 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold text-xs flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>✓ Ya en tu Cesta</span>
+                </span>
+              ) : (
+                <button
+                  onClick={() => handleAddToBasket()}
+                  className="px-5 py-2.5 rounded-xl bg-primary text-black font-bold text-xs hover:bg-primary-hover shadow-lg shadow-primary/20 transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  {addedSuccess ? <CheckCircle2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                  {addedSuccess ? "¡Añadido a tu Cesta!" : "+ Añadir a mi Cesta"}
+                </button>
+              )}
             </div>
           </div>
 
@@ -818,10 +1029,26 @@ export default function AnalyticsPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Active Open Positions Table */}
             <div className="lg:col-span-2 p-6 rounded-2xl bg-surface border border-surface-border">
-              <h2 className="text-base font-bold text-white mb-4 flex items-center justify-between">
-                <span>Posiciones Abiertas en este Momento ({data.openPositions.length})</span>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-              </h2>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <span>Posiciones Abiertas en este Momento ({data.openPositions.length})</span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                </h2>
+
+                {data.openPositions.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setOnlyLatestOpenPosition(!onlyLatestOpenPosition)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all border ${
+                      onlyLatestOpenPosition
+                        ? "bg-amber-400 text-black border-amber-400 shadow-sm"
+                        : "bg-surface text-gray-400 border-surface-border hover:text-white"
+                    }`}
+                  >
+                    {onlyLatestOpenPosition ? "⭐ Mostrando Solo la Última Posición" : "⭐ Filtrar Solo la Última Posición"}
+                  </button>
+                )}
+              </div>
 
               {data.openPositions.length === 0 ? (
                 <div className="py-8 text-center text-gray-500 text-xs">
@@ -840,7 +1067,7 @@ export default function AnalyticsPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-surface-border">
-                      {data.openPositions.map((pos: any, idx: number) => (
+                      {(onlyLatestOpenPosition ? data.openPositions.slice(-1) : data.openPositions).map((pos: any, idx: number) => (
                         <tr key={idx} className="hover:bg-gray-800/40 transition-colors">
                           <td className="py-2.5 font-bold text-white">
                             <span className="px-2 py-0.5 rounded bg-gray-800 text-gray-100 font-mono">
@@ -867,7 +1094,12 @@ export default function AnalyticsPage() {
 
             {/* Favorite Assets */}
             <div className="p-6 rounded-2xl bg-surface border border-surface-border space-y-4">
-              <h2 className="text-base font-bold text-white">Activos Más Operados</h2>
+              <div>
+                <h2 className="text-base font-bold text-white">Monedas Más Operadas</h2>
+                <span className="text-[10px] text-gray-400 font-semibold block mt-0.5">
+                  Calculado de posiciones cerradas
+                </span>
+              </div>
               <div className="space-y-2.5">
                 {data.topAssets.map((asset: any, idx: number) => (
                   <div
@@ -880,7 +1112,12 @@ export default function AnalyticsPage() {
                       <span className="w-2 h-2 rounded-full bg-emerald-400" />
                       {asset.coin}
                     </span>
-                    <span className="text-xs text-gray-400 font-mono">{asset.count} operaciones</span>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 font-mono font-bold text-xs">
+                        {asset.pctFormatted || `${asset.pct}%`}
+                      </span>
+                      <span className="text-[11px] text-gray-400 font-mono">({asset.count} cerradas)</span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -894,12 +1131,13 @@ export default function AnalyticsPage() {
                 <Filter className="w-5 h-5 text-primary" />
                 <h2 className="text-base font-bold text-white">Filtrar Track Record Histórico</h2>
               </div>
-              {(selectedCoin !== "ALL" || selectedResult !== "ALL" || selectedSide !== "ALL" || searchTerm) && (
+              {(selectedCoin !== "ALL" || selectedResult !== "ALL" || selectedSide !== "ALL" || timeframeFilter !== "ALL" || searchTerm) && (
                 <button
                   onClick={() => {
                     setSelectedCoin("ALL");
                     setSelectedResult("ALL");
                     setSelectedSide("ALL");
+                    setTimeframeFilter("ALL");
                     setSearchTerm("");
                     setCurrentPage(1);
                   }}
@@ -910,7 +1148,7 @@ export default function AnalyticsPage() {
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               {/* Filter by Coin / Asset */}
               <div>
                 <label className="block text-[11px] font-semibold text-gray-400 uppercase mb-1.5">Filtrar por Activo</label>
@@ -923,9 +1161,29 @@ export default function AnalyticsPage() {
                   className="w-full px-3 py-2 rounded-lg bg-background border border-surface-border text-white text-xs focus:outline-none focus:border-primary cursor-pointer"
                 >
                   <option value="ALL">Todas las Monedas ({availableCoins.length})</option>
+                  <option value="NO_MEMES">🚫 Sin Memecoins (Solo Bluechips)</option>
+                  <option value="ONLY_MEMES">🐕 Solo Memecoins</option>
                   {availableCoins.map((coin) => (
                     <option key={coin} value={coin}>{coin}</option>
                   ))}
+                </select>
+              </div>
+
+              {/* Filter by Recency / Timeframe */}
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-400 uppercase mb-1.5">Recencia / Período</label>
+                <select
+                  value={timeframeFilter}
+                  onChange={(e: any) => {
+                    setTimeframeFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-surface-border text-white text-xs focus:outline-none focus:border-primary cursor-pointer"
+                >
+                  <option value="ALL">Todo el Historial</option>
+                  <option value="24H">🟢 Últimas 24 Horas</option>
+                  <option value="7D">⚡ Últimos 7 Días</option>
+                  <option value="30D">📅 Últimos 30 Días</option>
                 </select>
               </div>
 
