@@ -110,7 +110,7 @@ export default function Navbar() {
   const isReal = profile?.trading_mode === "REAL";
 
   return (
-    <nav className="border-b border-surface-border bg-background/90 backdrop-blur-md sticky top-0 z-50">
+    <nav className="border-b border-surface-border bg-background/90 backdrop-blur-md sticky top-0 z-50 pt-[env(safe-area-inset-top,0px)]">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14 sm:h-16 gap-2">
           
