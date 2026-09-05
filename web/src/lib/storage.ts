@@ -252,12 +252,15 @@ export function getStoredProfile(): UserProfile {
     }
   }
 
+  const profileCreatedTs = parsed.created_at ? new Date(parsed.created_at).getTime() : Date.now();
+
   parsed.traders = (parsed.traders || []).map((t: any) => ({
     ...t,
     stop_loss_pct: t.stop_loss_pct ?? 5.0,
     max_trade_sizing_pct: t.max_trade_sizing_pct ?? 25.0,
     risk_multiplier: t.risk_multiplier ?? 1.0,
     max_leverage: t.max_leverage ?? 10,
+    joined_at: t.joined_at && t.joined_at > 0 ? t.joined_at : profileCreatedTs,
   }));
 
   parsed.real_traders = (parsed.real_traders || []).map((t: any) => ({
@@ -266,6 +269,7 @@ export function getStoredProfile(): UserProfile {
     max_trade_sizing_pct: t.max_trade_sizing_pct ?? 25.0,
     risk_multiplier: t.risk_multiplier ?? 1.0,
     max_leverage: t.max_leverage ?? 10,
+    joined_at: t.joined_at && t.joined_at > 0 ? t.joined_at : profileCreatedTs,
   }));
 
   return parsed;

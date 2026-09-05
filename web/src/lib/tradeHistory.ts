@@ -102,6 +102,23 @@ export function rejectTradeId(tradeId: string): void {
   } catch {}
 }
 
+export interface LeaderLifetimeAudit {
+  totalFills: number;
+  wins: number;
+  losses: number;
+  winRate: string;
+  netPnl: number;
+  profitFactor: string;
+  grossProfit: number;
+  grossLoss: number;
+}
+
+export const leaderAuditsCache: Record<string, LeaderLifetimeAudit> = {};
+
+export function getLeaderAudit(address: string): LeaderLifetimeAudit | undefined {
+  return leaderAuditsCache[address.toLowerCase()];
+}
+
 // Fetch and sync actions from server
 export async function syncServerTradeActions(): Promise<{ approved: string[]; rejected: string[] }> {
   try {
@@ -148,12 +165,16 @@ export async function fetchFullTradeHistory(profile: UserProfile): Promise<Unifi
     ? (profile.initial_balance || 1000)
     : (profile.cash_balance || 10000);
 
+  const profileCreatedTs = (profile as any).created_at ? new Date((profile as any).created_at).getTime() : 0;
+
   // Ejecutar todas las peticiones a la API de Hyperliquid en PARALELO para máxima velocidad
   const traderResults = await Promise.all(
     targetTraders.map(async (t) => {
       const traderTrades: UnifiedTrade[] = [];
       const userCapital = baseCapital * (t.allocation_pct / 100);
-      const joinedAt = t.joined_at || 0;
+      const effectiveJoinedAt = (t.joined_at && t.joined_at > 0)
+        ? t.joined_at
+        : (profileCreatedTs > 0 ? profileCreatedTs : (resetTime > 0 ? resetTime : Date.now()));
       const copyExisting = t.copy_existing_positions ?? false;
       const riskMultiplier = t.risk_multiplier || 1.0;
       const allocPct = t.allocation_pct;
@@ -182,20 +203,57 @@ export async function fetchFullTradeHistory(profile: UserProfile): Promise<Unifi
         if (fillsRes && fillsRes.ok) {
           const fills = await fillsRes.json().catch(() => []);
           if (Array.isArray(fills)) {
+            let leaderWins = 0;
+            let leaderLosses = 0;
+            let leaderGrossProfit = 0;
+            let leaderGrossLoss = 0;
+            let leaderNetPnl = 0;
+
             fills.forEach((f: any) => {
               const c = (f.coin || "").toUpperCase();
               const time = f.time || 0;
               if (!fillsMapByCoin[c]) fillsMapByCoin[c] = [];
               fillsMapByCoin[c].push(time);
+
+              const cp = parseFloat(f.closedPnl || "0");
+              leaderNetPnl += cp;
+              if (cp > 0) {
+                leaderWins++;
+                leaderGrossProfit += cp;
+              } else if (cp < 0) {
+                leaderLosses++;
+                leaderGrossLoss += Math.abs(cp);
+              }
             });
+
+            const leaderWinRate = (leaderWins + leaderLosses) > 0
+              ? ((leaderWins / (leaderWins + leaderLosses)) * 100).toFixed(1)
+              : "0.0";
+            const leaderProfitFactor = leaderGrossLoss > 0
+              ? (leaderGrossProfit / leaderGrossLoss).toFixed(2)
+              : leaderGrossProfit > 0 ? "∞" : "0.00";
+
+            leaderAuditsCache[t.address.toLowerCase()] = {
+              totalFills: fills.length,
+              wins: leaderWins,
+              losses: leaderLosses,
+              winRate: leaderWinRate,
+              netPnl: leaderNetPnl,
+              profitFactor: leaderProfitFactor,
+              grossProfit: leaderGrossProfit,
+              grossLoss: leaderGrossLoss,
+            };
 
             for (let i = 0; i < fills.length; i++) {
               const f = fills[i];
               const closeTime = f.time || 0;
               const coin = (f.coin || "").toUpperCase();
 
+              // REGLA ESTRICTA DE RÉPLICA:
+              // Una operación cerrada con anterioridad a la fecha en que el usuario empezó a copiar al trader (effectiveJoinedAt)
+              // o antes de un reinicio de cuenta (resetTime) NUNCA fue una réplica del usuario.
+              if (effectiveJoinedAt > 0 && closeTime < effectiveJoinedAt) continue;
               if (resetTime > 0 && closeTime < resetTime) continue;
-              if (!copyExisting && joinedAt > 0 && closeTime < joinedAt) continue;
 
               if (coinFilterMode === "ALLOWLIST" && allowedCoins.length > 0 && !allowedCoins.includes(coin)) continue;
               if (coinFilterMode === "BLOCKLIST" && blockedCoins.length > 0 && blockedCoins.includes(coin)) continue;
@@ -281,9 +339,9 @@ export async function fetchFullTradeHistory(profile: UserProfile): Promise<Unifi
             const coinTimes = fillsMapByCoin[coin] || [];
             const openTime = coinTimes.length > 0
               ? Math.min(...coinTimes)
-              : joinedAt > 0 ? joinedAt : Date.now() - 7200000;
+              : effectiveJoinedAt > 0 ? effectiveJoinedAt : Date.now() - 7200000;
 
-            if (!copyExisting && joinedAt > 0 && openTime < joinedAt) continue;
+            if (!copyExisting && effectiveJoinedAt > 0 && openTime < effectiveJoinedAt) continue;
             if (resetTime > 0 && openTime < resetTime) continue;
 
             const tradeId = `open_${t.address.slice(0, 6)}_${coin}_${i}`;

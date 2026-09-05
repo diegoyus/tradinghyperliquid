@@ -41,7 +41,7 @@ import Link from "next/link";
 import { getStoredProfile, resetProfile, updateTradersConfig, saveStoredProfile, isAuthenticated, updateTradingMode } from "@/lib/storage";
 import { UserProfile, UnifiedTrade } from "@/lib/types";
 import { getUserProfileFromCloud, saveUserProfileToCloud } from "@/lib/cloudSync";
-import { fetchFullTradeHistory, approveTradeId, rejectTradeId } from "@/lib/tradeHistory";
+import { fetchFullTradeHistory, approveTradeId, rejectTradeId, getLeaderAudit } from "@/lib/tradeHistory";
 import { MetricsInfoModal } from "@/components/MetricsInfoModal";
 import { EditAliasModal } from "@/components/EditAliasModal";
 import { GuidedTour } from "@/components/GuidedTour";
@@ -1047,6 +1047,7 @@ export default function DashboardPage() {
             durationStr: o.durationStr,
             marginUSD: o.leverage > 0 ? o.usdValue / o.leverage : o.usdValue,
           })),
+          leaderAudit: getLeaderAudit(addr) || null,
         };
       }
 
@@ -1393,10 +1394,12 @@ export default function DashboardPage() {
     const totalRoiPct = assignedUSD > 0 ? ((live.totalCombinedPnl / assignedUSD) * 100) : 0;
     const marginUtilizationPct = assignedUSD > 0 ? Math.min(100, (live.marginUsed / assignedUSD) * 100) : 0;
     const freeAssignedMargin = Math.max(0, assignedUSD - live.marginUsed);
+    const leaderAudit = live.leaderAudit || getLeaderAudit(t.address) || null;
 
     return {
       ...t,
       ...live,
+      leaderAudit,
       assignedUSD,
       freeAssignedMargin,
       marginUtilizationPct,

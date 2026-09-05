@@ -114,13 +114,18 @@ export function CopiedTraderCard({ trader: t, isReal, onEditAlias }: CopiedTrade
             <span className="px-2 py-0.5 rounded bg-background text-gray-400 border border-surface-border text-[10px]">
               SL: -{t.stop_loss_pct}% • Max {t.max_leverage}x
             </span>
+            {t.joined_at && (
+              <span className="px-2 py-0.5 rounded bg-surface text-gray-400 border border-surface-border text-[10px]">
+                Copiando desde {new Date(t.joined_at).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
+              </span>
+            )}
           </div>
         </div>
 
         {/* 2. BANNER PRINCIPAL DE BENEFICIO (Valor Absoluto $ y ROI %) */}
         <div className="sm:text-right bg-background/80 sm:bg-transparent p-3 sm:p-0 rounded-2xl border sm:border-0 border-surface-border/60">
           <span className="text-[10px] text-gray-400 block uppercase font-bold tracking-wider">
-            Beneficio Neto Generado
+            Mis Ganancias de Réplica
           </span>
           <div className="flex sm:justify-end items-baseline gap-1.5">
             <span className={`text-2xl font-black font-mono ${isProfitTotal ? "text-emerald-400" : "text-red-400"}`}>
@@ -142,13 +147,28 @@ export function CopiedTraderCard({ trader: t, isReal, onEditAlias }: CopiedTrade
         </div>
       </div>
 
+      {/* AVISO INFORMATIVO SI LLEVA 0 OPERACIONES */}
+      {totalTrades === 0 && !hasOpenPositions && (
+        <div className="p-3 rounded-2xl bg-surface/70 border border-surface-border text-xs text-gray-300 flex items-start gap-2.5">
+          <Clock className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+          <div className="space-y-0.5">
+            <div className="font-bold text-white text-[11px]">
+              Copia activa en segundo plano ({t.allocation_pct}% de tu capital: ${(t.assignedUSD || 0).toFixed(0)} USD)
+            </div>
+            <div className="text-[10px] text-gray-400 leading-relaxed">
+              Aún no se han ejecutado nuevas operaciones desde que empezaste a copiar a este trader. Cuando el líder abra una posición en Hyperliquid, el motor la replicará automáticamente en tu cuenta.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 3. GRID DE 4 PILARES CLAVE: Veces Copiado, Frecuencia Diaria, Ganancia Media y Profit Factor */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 font-mono text-xs">
         
         {/* Pilar 1: Veces que he copiado y resultado (Ganadas vs Perdidas) */}
         <div className="p-3 rounded-2xl bg-background/70 border border-surface-border space-y-1.5">
           <div className="flex items-center justify-between text-gray-400 text-[10px] uppercase font-sans font-bold">
-            <span>Veces Copiado</span>
+            <span>Mis Operaciones</span>
             <History className="w-3.5 h-3.5 text-blue-400" />
           </div>
           <div className="text-base font-black text-white flex items-baseline gap-1.5">
@@ -158,23 +178,29 @@ export function CopiedTraderCard({ trader: t, isReal, onEditAlias }: CopiedTrade
           {/* Barra Visual de Win Rate */}
           <div className="space-y-1 pt-0.5 font-sans">
             <div className="flex items-center justify-between text-[10px]">
-              <span className="text-emerald-400 font-bold">{wins} Ganados</span>
-              <span className="text-red-400 font-bold">{losses} Perdidos</span>
+              <span className={wins > 0 ? "text-emerald-400 font-bold" : "text-gray-400 font-medium"}>{wins} Ganados</span>
+              <span className={losses > 0 ? "text-red-400 font-bold" : "text-gray-400 font-medium"}>{losses} Perdidos</span>
             </div>
             <div className="w-full h-1.5 bg-surface-border rounded-full overflow-hidden flex">
-              <div
-                style={{ width: `${winRateNum}%` }}
-                className="bg-emerald-500 h-full rounded-full transition-all"
-              />
-              <div
-                style={{ width: `${100 - winRateNum}%` }}
-                className="bg-red-500 h-full rounded-full transition-all"
-              />
+              {totalTrades > 0 ? (
+                <>
+                  <div
+                    style={{ width: `${winRateNum}%` }}
+                    className="bg-emerald-500 h-full rounded-full transition-all"
+                  />
+                  <div
+                    style={{ width: `${100 - winRateNum}%` }}
+                    className="bg-red-500 h-full rounded-full transition-all"
+                  />
+                </>
+              ) : (
+                <div className="bg-gray-700 h-full w-full" />
+              )}
             </div>
             <div className="text-[10px] text-gray-400 flex items-center justify-between pt-0.5">
               <span>Acierto:</span>
-              <strong className={`font-mono font-bold ${winRateNum >= 50 ? "text-emerald-400" : "text-amber-400"}`}>
-                {t.winRate || "0.0"}%
+              <strong className={`font-mono font-bold ${totalTrades > 0 ? (winRateNum >= 50 ? "text-emerald-400" : "text-amber-400") : "text-gray-400"}`}>
+                {totalTrades > 0 ? `${t.winRate || "0.0"}%` : "—"}
               </strong>
             </div>
           </div>
@@ -187,13 +213,13 @@ export function CopiedTraderCard({ trader: t, isReal, onEditAlias }: CopiedTrade
             <Calendar className="w-3.5 h-3.5 text-emerald-400" />
           </div>
           <div className="text-base font-black text-emerald-300">
-            ~{t.tradesPerDay || "0.0"} <span className="text-xs font-normal text-gray-400">/día</span>
+            {totalTrades > 0 ? `~${t.tradesPerDay || "0.0"}` : "0.0"} <span className="text-xs font-normal text-gray-400">/día</span>
           </div>
           <div className="space-y-0.5 text-[10px] text-gray-400 font-sans">
             <div className="flex items-center justify-between">
               <span>Cadencia:</span>
               <strong className="text-gray-300 font-mono">
-                {t.avgHoursPerTrade && t.avgHoursPerTrade > 0 ? `1 trade / ${t.avgHoursPerTrade}h` : "Continuo"}
+                {totalTrades > 0 && t.avgHoursPerTrade && t.avgHoursPerTrade > 0 ? `1 trade / ${t.avgHoursPerTrade}h` : "Esperando señal"}
               </strong>
             </div>
             <div className="flex items-center justify-between">
@@ -211,17 +237,17 @@ export function CopiedTraderCard({ trader: t, isReal, onEditAlias }: CopiedTrade
             <span>Media por Trade</span>
             <DollarSign className="w-3.5 h-3.5 text-yellow-400" />
           </div>
-          <div className={`text-base font-black ${ (t.avgTradePnl || 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+          <div className={`text-base font-black ${ (t.avgTradePnl || 0) > 0 ? "text-emerald-400" : (t.avgTradePnl || 0) < 0 ? "text-red-400" : "text-gray-300"}`}>
             {(t.avgTradePnl || 0) >= 0 ? "+" : ""}${(t.avgTradePnl || 0).toFixed(2)}
           </div>
           <div className="space-y-0.5 text-[10px] text-gray-400 font-sans">
             <div className="flex items-center justify-between">
               <span>Avg Ganancia:</span>
-              <strong className="text-emerald-400 font-mono">+${(t.avgWin || 0).toFixed(2)}</strong>
+              <strong className="text-emerald-400 font-mono">{t.avgWin > 0 ? `+$${(t.avgWin || 0).toFixed(2)}` : "—"}</strong>
             </div>
             <div className="flex items-center justify-between">
               <span>Avg Pérdida:</span>
-              <strong className="text-red-400 font-mono">-${(t.avgLoss || 0).toFixed(2)}</strong>
+              <strong className="text-red-400 font-mono">{t.avgLoss > 0 ? `-$${(t.avgLoss || 0).toFixed(2)}` : "—"}</strong>
             </div>
           </div>
         </div>
@@ -233,12 +259,12 @@ export function CopiedTraderCard({ trader: t, isReal, onEditAlias }: CopiedTrade
             <Zap className="w-3.5 h-3.5 text-primary" />
           </div>
           <div className="text-base font-black text-white">
-            {t.profitFactor || "0.00"}x
+            {totalTrades > 0 ? `${t.profitFactor || "0.00"}x` : "—"}
           </div>
           <div className="space-y-0.5 text-[10px] text-gray-400 font-sans">
             <div className="flex items-center justify-between">
               <span>Ratio B/P (Payoff):</span>
-              <strong className="text-cyan-300 font-mono">{t.payoffRatio || "0.00"}x</strong>
+              <strong className="text-cyan-300 font-mono">{totalTrades > 0 ? `${t.payoffRatio || "0.00"}x` : "—"}</strong>
             </div>
             <div className="flex items-center justify-between">
               <span>7D Beneficio:</span>
@@ -260,13 +286,48 @@ export function CopiedTraderCard({ trader: t, isReal, onEditAlias }: CopiedTrade
         >
           <span className="flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-primary" />
-            <span>{showDetails ? "Ocultar Análisis Avanzado" : "Ver Récords, Margen y Desglose Cuantitativo"}</span>
+            <span>{showDetails ? "Ocultar Análisis Avanzado" : "Ver Récords, Auditoría del Líder y Desglose"}</span>
           </span>
           {showDetails ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
 
         {showDetails && (
           <div className="mt-3 p-4 rounded-2xl bg-background/70 border border-surface-border/80 space-y-4 animate-fadeIn">
+            {/* BLOQUE EXCLUSIVO: Auditoría Histórica del Líder en Blockchain */}
+            {t.leaderAudit && (
+              <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold text-amber-300">
+                  <span className="flex items-center gap-1.5">
+                    <Award className="w-4 h-4 text-amber-400" />
+                    <span>Auditoría Histórica del Líder en Blockchain (Hyperliquid L1)</span>
+                  </span>
+                  <span className="text-[10px] bg-amber-400/20 px-2 py-0.5 rounded-full border border-amber-400/30 font-mono">
+                    Histórico Previo
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-300 leading-relaxed">
+                  Track record acumulado por este trader en la blockchain antes de que tú empezaras a copiarlo. <em>(Datos públicos de auditoría; no representan balance de tu cuenta)</em>:
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 font-mono text-xs">
+                  <div className="p-2 rounded-xl bg-background/60 border border-surface-border">
+                    <span className="text-[10px] text-gray-400 font-sans block">Total Trades Líder</span>
+                    <span className="font-bold text-white">{t.leaderAudit.totalFills} trades</span>
+                  </div>
+                  <div className="p-2 rounded-xl bg-background/60 border border-surface-border">
+                    <span className="text-[10px] text-gray-400 font-sans block">Efectividad Global</span>
+                    <span className="font-bold text-emerald-400">{t.leaderAudit.winRate}% ({t.leaderAudit.wins}G / {t.leaderAudit.losses}P)</span>
+                  </div>
+                  <div className="p-2 rounded-xl bg-background/60 border border-surface-border">
+                    <span className="text-[10px] text-gray-400 font-sans block">Profit Factor Líder</span>
+                    <span className="font-bold text-cyan-300">{t.leaderAudit.profitFactor}x</span>
+                  </div>
+                  <div className="p-2 rounded-xl bg-background/60 border border-surface-border">
+                    <span className="text-[10px] text-gray-400 font-sans block">PnL Acumulado Líder</span>
+                    <span className="font-bold text-emerald-400">+${(t.leaderAudit.netPnl || 0).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                  </div>
+                </div>
+              </div>
+            )}
             {/* Récords de Mejores / Peores Operaciones */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
               <div className="p-2.5 rounded-xl bg-surface border border-surface-border space-y-1">

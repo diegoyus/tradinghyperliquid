@@ -2,9 +2,9 @@
  * Control de Versiones y Despliegues de HyperCopy
  * Actualizado automáticamente en cada versión y despliegue de producción.
  */
-export const APP_VERSION = "v2.6.0";
-export const LAST_DEPLOY_DATE = "5 de Septiembre de 2026, 13:30 CEST";
-export const DEPLOY_COMMIT = "c49a1f2";
+export const APP_VERSION = "v2.7.0";
+export const LAST_DEPLOY_DATE = "5 de Septiembre de 2026, 14:10 CEST";
+export const DEPLOY_COMMIT = "e89c3a1";
 export const DEPLOY_ENV = "Producción (Vercel Edge)";
 
 export interface VersionChange {
@@ -15,6 +15,17 @@ export interface VersionChange {
 }
 
 export const DEPLOY_HISTORY: VersionChange[] = [
+  {
+    version: "v2.7.0",
+    date: "05/09/2026, 14:10",
+    title: "Separación Estricta: Mis Datos de Réplica vs Auditoría Histórica del Líder",
+    details: [
+      "Filtro cronológico estricto: Las tarjetas solo contabilizan operaciones ejecutadas después de empezar a seguir al trader.",
+      "Clarificación contable: Si no hay operaciones ejecutadas desde tu fecha de inicio, muestra con total honestidad 0 trades y $0.00.",
+      "Nuevo bloque en análisis avanzado: 'Auditoría Histórica del Líder en Blockchain' con el track record público acumulado en Hyperliquid L1.",
+      "Inicialización automática de fecha de unión (joined_at) para evitar la carga de trades cerrados en el pasado."
+    ]
+  },
   {
     version: "v2.6.0",
     date: "05/09/2026, 13:30",
